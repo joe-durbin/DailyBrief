@@ -14,7 +14,7 @@ Web search uses the bundled SearXNG container; no key needed.
 ## Install
 
 ```bash
-git clone <this repository> dailybrief && cd dailybrief
+git clone gh repo clone joe-durbin/DailyBrief && cd DailyBrief
 cp .env.example .env
 # set DAILYBRIEF_SECRET in .env:  openssl rand -base64 32
 docker compose up -d --build
@@ -34,11 +34,7 @@ A new install has no topics or feeds; the dashboard's welcome page walks you thr
 
 ### Using a LiteLLM proxy (or another OpenAI-compatible server) on the same machine
 
-Choose **OpenAI-compatible** and use `http://host.docker.internal:4000/v1` as the address (inside Docker, `127.0.0.1` is the container itself). Make the proxy listen on `0.0.0.0` (with a key) or on the Docker bridge address `172.17.0.1`. If the host runs `ufw` and the connection test times out, allow containers to reach it:
-
-```bash
-sudo ufw allow from 172.16.0.0/12 to 172.17.0.1 port 4000 proto tcp
-```
+Choose **OpenAI-compatible** and use `http://host.docker.internal:4000/v1` as the address (inside Docker, `127.0.0.1` is the container itself). Make the proxy listen on `0.0.0.0` (with a key) or on the Docker bridge address.
 
 ## Settings at a glance
 
