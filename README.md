@@ -14,7 +14,7 @@ Web search uses the bundled SearXNG container; no key needed.
 ## Install
 
 ```bash
-git clone gh repo clone joe-durbin/DailyBrief && cd DailyBrief
+git clone https://github.com/joe-durbin/DailyBrief.git && cd DailyBrief
 cp .env.example .env
 # set DAILYBRIEF_SECRET in .env:  openssl rand -base64 32
 docker compose up -d --build
