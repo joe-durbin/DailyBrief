@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DailyBrief — User Manual</title>
+<!-- Applies the reader's DailyBrief theme when served by the app (absent when opened as a file: default theme). -->
+<script src="/manual-theme.js"></script>
+<style>
+  /* Colour names match the app's (apps/web/src/styles.css). DailyBrief is the default; inside the app the build
+     adds the other themes below and /manual-theme.js applies the reader's choice. */
+  :root {
+    --color-bg: #0e1116; --color-surface: #151a21; --color-surface-2: #1b212a;
+    --color-line: rgb(255 255 255 / 0.07); --color-line-strong: rgb(255 255 255 / 0.12);
+    --color-ink: #e7eaee; --color-muted: #98a2b3; --color-accent: #7c8cff; --color-warn: #f59e0b; --color-danger: #f87171;
+    color-scheme: dark;
+  }
+  /* @themes */
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0; background: var(--color-bg); color: var(--color-ink);
+    font: 16px/1.65 "Inter", "Inter Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--color-accent); text-underline-offset: 3px; }
+  header.top {
+    position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: 12px;
+    height: 52px; padding: 0 20px; background: color-mix(in srgb, var(--color-surface) 85%, transparent); backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--color-line);
+  }
+  header.top strong { font-size: 15px; letter-spacing: -0.01em; }
+  header.top span { color: var(--color-muted); font-size: 13px; }
+  .layout { display: grid; grid-template-columns: 240px minmax(0, 1fr); max-width: 1180px; margin: 0 auto; gap: 40px; padding: 0 24px; }
+  nav.toc { position: sticky; top: 76px; align-self: start; padding: 28px 0; font-size: 14px; }
+  nav.toc p { margin: 0 0 8px; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-muted); }
+  nav.toc a { display: block; padding: 6px 10px; border-radius: 8px; color: var(--color-muted); text-decoration: none; }
+  nav.toc a:hover { background: var(--color-surface-2); color: var(--color-ink); }
+  main { padding: 36px 0 80px; max-width: 760px; }
+  .hero {
+    padding: 32px; border-radius: 20px; border: 1px solid var(--color-line-strong);
+    background: radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--color-accent) 16%, transparent), transparent 55%), var(--color-surface);
+  }
+  .hero h1 { margin: 0 0 10px; font-size: 32px; line-height: 1.15; letter-spacing: -0.02em; font-weight: 650; }
+  .hero p { margin: 0; color: var(--color-muted); font-size: 17px; }
+  h2 { margin: 56px 0 12px; font-size: 22px; letter-spacing: -0.015em; font-weight: 650; scroll-margin-top: 72px; }
+  h3 { margin: 28px 0 8px; font-size: 16px; font-weight: 600; }
+  p, li { color: color-mix(in srgb, var(--color-ink) 90%, transparent); }
+  ul, ol { padding-left: 22px; }
+  li { margin: 4px 0; }
+  .lead { color: var(--color-muted); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; margin: 18px 0; }
+  .card { padding: 16px 18px; border-radius: 16px; border: 1px solid var(--color-line); background: var(--color-surface); }
+  .card b { display: block; margin-bottom: 4px; }
+  .card span { color: var(--color-muted); font-size: 14px; line-height: 1.5; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 1px 10px; border-radius: 999px; background: var(--color-surface-2); border: 1px solid var(--color-line-strong); font-size: 13px; font-weight: 500; white-space: nowrap; }
+  kbd { padding: 1px 6px; border-radius: 6px; border: 1px solid var(--color-line-strong); background: var(--color-surface-2); font: 12px ui-monospace, "JetBrains Mono", monospace; }
+  .note, .warn { margin: 18px 0; padding: 14px 16px; border-radius: 12px; font-size: 15px; }
+  .note { background: color-mix(in srgb, var(--color-accent) 8%, transparent); border: 1px solid color-mix(in srgb, var(--color-accent) 30%, transparent); }
+  .warn { background: color-mix(in srgb, var(--color-warn) 8%, transparent); border: 1px solid color-mix(in srgb, var(--color-warn) 30%, transparent); }
+  .note b, .warn b { color: var(--color-ink); }
+  table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 15px; }
+  th, td { text-align: left; vertical-align: top; padding: 10px 12px; border-bottom: 1px solid var(--color-line); }
+  th { color: var(--color-muted); font-size: 12px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; }
+  td:first-child { white-space: nowrap; font-weight: 500; }
+  .steps { counter-reset: step; list-style: none; padding: 0; }
+  .steps li { counter-increment: step; position: relative; padding-left: 40px; margin: 12px 0; }
+  .steps li::before {
+    content: counter(step); position: absolute; left: 0; top: 1px; width: 26px; height: 26px; border-radius: 50%;
+    display: grid; place-items: center; background: color-mix(in srgb, var(--color-accent) 15%, transparent); color: var(--color-accent); font-size: 13px; font-weight: 600;
+  }
+  footer { margin-top: 64px; padding-top: 20px; border-top: 1px solid var(--color-line); color: var(--color-muted); font-size: 14px; }
+  @media (max-width: 860px) { .layout { grid-template-columns: 1fr; } nav.toc { display: none; } }
+</style>
+</head>
+<body>
+<header class="top">
+  <svg viewBox="0 0 32 32" width="24" height="24" aria-hidden="true"><rect width="32" height="32" rx="8" style="fill: var(--color-surface-2)"/><path d="M16 6l8 10-8 10-8-10z" style="fill: var(--color-accent)"/><path d="M16 11l4 5-4 5-4-5z" style="fill: var(--color-surface-2)"/></svg>
+  <strong>DailyBrief</strong><span>User manual · version <span data-version>1.0.0-beta.3</span></span>
+</header>
+
+<div class="layout">
+<nav class="toc" aria-label="Contents">
+  <p>Contents</p>
+  <a href="#what">What DailyBrief is</a>
+  <a href="#why">Why it helps</a>
+  <a href="#dashboard">Dashboard</a>
+  <a href="#briefs">Daily briefs</a>
+  <a href="#reading">Reading an article</a>
+  <a href="#chat">Chatting with an article</a>
+  <a href="#rss">RSS reader</a>
+  <a href="#saved">Saved</a>
+  <a href="#chats">Chats</a>
+  <a href="#topics">Topics</a>
+  <a href="#settings">Settings</a>
+  <a href="#faq">Questions &amp; troubleshooting</a>
+</nav>
+
+<main>
+<section class="hero">
+  <h1>Your news, read for you every morning.</h1>
+  <p>DailyBrief searches the web and your RSS feeds overnight, picks the stories that matter for each of your topics, and writes each one up as a short, sourced article — ready with your coffee.</p>
+</section>
+
+<h2 id="what">What DailyBrief is</h2>
+<p>DailyBrief is a private news desk that runs on your own network. You tell it which <b>topics</b> you follow and describe what you care about in each. Every morning it:</p>
+<ol class="steps">
+  <li><b>Gathers</b> the last few days' coverage from web searches and the RSS feeds linked to the topic.</li>
+  <li><b>Groups</b> articles that report the same event, so ten write-ups of one announcement become one story.</li>
+  <li><b>Scores and selects</b> up to 15 stories for relevance, significance, depth and source quality — taking your past ratings into account.</li>
+  <li><b>Writes</b> each story as a clear article with numbered citations linking to the original sources.</li>
+</ol>
+<p>Alongside the briefs you get a full <b>RSS reader</b>, a <b>Saved</b> list, and <b>Chats</b> — an assistant you can question about any article.</p>
+
+<h2 id="why">Why it helps</h2>
+<div class="grid">
+  <div class="card"><b>Minutes, not hours</b><span>Fifteen headlines and summaries per topic tell you what happened. Open only what matters.</span></div>
+  <div class="card"><b>No duplicates</b><span>Each event appears once, written from all its sources — and stories you dismissed never come back.</span></div>
+  <div class="card"><b>Always sourced</b><span>Every claim is cited. One click takes you to the original article.</span></div>
+  <div class="card"><b>Learns your taste</b><span>Thumbs up and down gently steer future selection without narrowing it into an echo chamber.</span></div>
+  <div class="card"><b>Ask follow-ups</b><span>Chat with any article for deeper detail, grounded in its sources — optionally searching the web for more.</span></div>
+  <div class="card"><b>Private</b><span>Runs on your own machine, behind a login. Your reading habits stay with you.</span></div>
+</div>
+
+<h2 id="dashboard">Dashboard</h2>
+<p>The dashboard is your overview of the day before you dive into articles. It opens when you start DailyBrief, and clicking <b>DailyBrief</b> at the top left always brings you back.</p>
+<ul>
+  <li><b>Status line</b> — how many briefs are ready, cards still to triage, unread RSS articles and when the next brief arrives. Any problem with a brief (for example the AI running out of tokens) is shown here too.</li>
+  <li><b>Quiet feeds</b> — if an RSS feed hasn't posted for 30 days (change this in Settings → RSS), a warning appears at the top: press <b>✓</b> to remove the feed (anything you saved from it is kept) or <b>✕</b> to keep it and hide the warning. It comes back only if the feed posts again and then goes quiet for that long again.</li>
+  <li><b>Continue where you left off</b> — the last RSS article you read, saved articles you haven't opened since saving them, and your latest chat — in the same order as the top bar.</li>
+  <li><b>Today's themes</b> — written by the AI once the morning's briefs are done: the threads that connect stories across your topics, each with its articles. Click any article to read it.</li>
+  <li><b>Most mentioned this week</b> — the companies, products, people and identifiers that keep coming up. <span class="pill">NEW</span> means they weren't mentioned the week before; an arrow means they're rising.</li>
+  <li><b>Your week</b> — brief cards opened, saved and ignored per day, RSS articles read, your ratings and the publishers you rate highest, chats and the size of Saved.</li>
+  <li><b>System health</b> — how this morning's runs went, today's AI use for each model that was used (calls and tokens, plus cost where prices are set), and any RSS feeds that are failing.</li>
+</ul>
+
+<h2 id="briefs">Daily briefs</h2>
+<p>Each topic gets a new brief every morning (05:00 by default). Choose a topic in the sidebar to see its brief: a grid of up to 15 cards, lead story first.</p>
+<p>Briefs are about recent news: stories from the last 7 days. Every story is dated — from the page itself, its web address, or an estimate from its content when neither says — so older research or reports that resurface in search don't slip in. On quiet days this can mean fewer than 15 cards.</p>
+<h3>Reading a card</h3>
+<p>Each card shows the publisher, how many sources it draws on (<i>+2</i>), how old the story is, the headline and a short summary — enough to decide whether to read on. Click or tap a card to open the full article.</p>
+<h3>Triage: clearing the grid</h3>
+<p>The idea is to work through the grid until it is empty. From an open article:</p>
+<table>
+  <tr><th>Action</th><th>What happens</th></tr>
+  <tr><td>Save</td><td>Keeps the article in <b>Saved</b> and removes the card from the grid.</td></tr>
+  <tr><td>Ignore</td><td>Removes the card. That story will <b>not</b> return in future briefs, even if covered again.</td></tr>
+  <tr><td>👍 / 👎</td><td>"More like this" / "less like this". Ratings gently influence what future briefs pick.</td></tr>
+  <tr><td>Close</td><td>Leaves the card in the grid for later.</td></tr>
+</table>
+<p>When the grid is empty you'll see <i>All caught up</i>.</p>
+<h3>Previous briefs</h3>
+<p>Next to the topic name is the date with <b>‹ ›</b> arrows to step through earlier briefs. Click the date for a calendar: days with a brief are <b>bold</b> with a dot; other days are greyed out. <i>Back to today</i> returns you to the current brief.</p>
+<h3>Regenerate</h3>
+<p>The circular-arrow button in the brief header writes today's brief again from scratch. Cards you haven't saved are replaced; saved articles are kept. You'll be asked to confirm.</p>
+<div class="note"><b>Tip:</b> a brief may show fewer than 15 cards on quiet days. DailyBrief prefers fewer good stories to filler — or set <b>Settings → Daily brief</b> to <i>Maximum coverage</i> to always aim for 15.</div>
+
+<h2 id="reading">Reading an article</h2>
+<ul>
+  <li>Under the headline, a small date shows when the news happened, so it stays clear once an article is in Saved or Chats. <b>≈</b> means none of the sources gave an exact date, so it was estimated from their content, web address or wording.</li>
+  <li>Articles open in a large panel over the grid. Citation numbers like <b>[2]</b> jump to the <b>Sources</b> list at the bottom; each source opens the original page in a new tab.</li>
+  <li>Close with the <b>✕</b>, by clicking outside the panel, with <kbd>Esc</kbd>, or by swiping right on a touch screen.</li>
+  <li>For a saved article, the toolbar shows <b>Saved</b> (click to unsave — it returns to its brief) and <b>Delete</b>, which removes the article and any chat about it permanently.</li>
+</ul>
+
+<h2 id="chat">Chatting with an article</h2>
+<p>At the bottom of every article — brief or RSS — is <span class="pill">Chat with this article</span>. Ask anything: <i>"Explain this in more depth"</i>, <i>"Why does this matter?"</i>, <i>"Where do the sources disagree?"</i>, or use the suggested starters.</p>
+<ul>
+  <li>Answers are based on the article and its sources and cite them as <b>[n]</b>. Anything beyond the sources is clearly marked <i>"Beyond the sources"</i>.</li>
+  <li>Press <kbd>Enter</kbd> to send, <kbd>Shift</kbd>+<kbd>Enter</kbd> for a new line.</li>
+  <li><b>Look further</b> (tick box) also searches the web for your question. Only results that genuinely concern the same story are used, listed as <b>Web results</b>. If nothing relevant is found, the answer says so: <i>"Look further: no additional sources found"</i>.</li>
+  <li>Asking a question <b>keeps the article</b>: it moves to <a href="#chats">Chats</a>. A brief card leaves the grid when you close it.</li>
+</ul>
+
+<h2 id="rss">RSS reader</h2>
+<p>The RSS mode is a two-pane reader: headlines on the left (newest first, grouped by day, each with its publisher and the time it was published), the article on the right. A few feeds don't say when a post was published, or give only the day: those posts show no time, and undated ones are listed under the day DailyBrief first found them. Articles are fetched in full where the site allows, so you can read without leaving DailyBrief.</p>
+<ul>
+  <li><b>Unread</b> items have a dot and bold title; opening one marks it read. <b>Mark all as read</b> (double tick) applies to the current filter.</li>
+  <li><b>Filters</b> sit on one row under the search box. <b>Topics</b> opens a list of checkboxes: tick the topics whose feeds you want to see, use <b>Only</b> on a row to show just that topic, or <b>Select all</b> / <b>Clear</b>; the button shows "All topics", the topic's name or "3 topics" and is highlighted while filtering. <b>Unread</b> hides what you've read, and <b>All feeds</b> lets you pick a single feed (with a search box and unread counts).</li>
+  <li><b>Search</b> looks through headlines, summaries and the full article text, ranks the best matches first, and understands word forms — searching <i>exploit</i> also finds <i>exploited</i> and <i>exploitation</i>.</li>
+  <li><b>Save</b> (bookmark) keeps an article in Saved. <b>Open original</b> goes to the publisher's site.</li>
+  <li>Your place is remembered: switch to another mode and back, and the list returns to the same scroll position, filters and open article.</li>
+</ul>
+<h3>Managing feeds</h3>
+<p>The <b>Manage feeds</b> button (sliders icon) lists every feed with its status, which topics use it, an on/off switch, <b>Fetch now</b> and <b>Remove</b>.</p>
+<ol class="steps">
+  <li>Paste a feed address — or just a website address; DailyBrief finds its feed — and press <b>Check</b>.</li>
+  <li>Review the preview (name, number of items, latest post), adjust the name, and choose <b>Add feed</b>.</li>
+  <li>To use the feed in a topic's brief, tick it in that topic's settings (<a href="#topics">Topics</a>).</li>
+</ol>
+<p>The box under <b>Add a feed</b> filters the list as you type, matching feed names and addresses.</p>
+<p>Removing a feed removes its articles from the reader, but anything you <b>saved or chatted about is kept</b> under the feed's name.</p>
+
+
+<h2 id="saved">Saved</h2>
+<p>Everything you've saved — brief articles and RSS articles — in one list. Filter with the <b>All saved</b> button — tick any mix of topics and <i>From RSS</i>, or use <b>Only</b> on a row — search, and sort by when you saved it or when it was published. Saved brief articles open in place; RSS ones open in the reader.</p>
+
+<h2 id="chats">Chats</h2>
+<p>Every article you've asked a question about lives here, most recent conversation first, with your last question shown under the title. It works like the RSS reader: the list on the left, the article on the right, opened at the conversation so you can pick up where you left off. Filter it the same way with the <b>All chats</b> button.</p>
+<ul>
+  <li><b>Clear conversation</b> erases the chat; the article moves to Saved so you don't lose it.</li>
+  <li><b>Delete</b> erases the article and its conversation (after confirming). An RSS article simply returns to being an ordinary reader item.</li>
+</ul>
+
+<h2 id="topics">Topics</h2>
+<p>Click <b>Edit topics</b> at the bottom of the sidebar. In edit mode you can drag topics to reorder them, use the pencil to edit one, or <b>Add topic</b>.</p>
+<h3>Writing a good description</h3>
+<p>The description is the most important setting: it tells DailyBrief what to search for, what to choose and how to write. Say <b>what to cover, who it's for, how technical it should be, and what to leave out</b>. For example:</p>
+<div class="card"><span>"New PC and console game releases, major patches and studio news, written for a keen player. Skip rumours, deals and sales."</span></div>
+<p>Also choose a colour and, optionally, tick <b>RSS feeds</b> for the topic (searchable when you have many). Feeds aren't required: stories are always found by web search, and ticked feeds are simply checked as well — their articles also appear under the topic in the RSS reader. Creating a topic generates its first brief straight away. When editing, you can tick <i>Regenerate today's brief with these changes</i>. Deleting a topic keeps any articles you saved from it.</p>
+<h3>Let AI pick feeds</h3>
+<p>Under the feed list, switch from <b>Choose from my feeds</b> to <b>Let AI pick</b>. The simplest way is to just press <b>Create and generate</b> (or <b>Save changes</b>, which then regenerates today's brief): DailyBrief picks feeds in the background as the brief's first step — the status shows <i>Finding feeds…</i> — linking suitable feeds you already have (not quiet ones) and adding new, active ones. You can review them afterwards in the topic's settings or under RSS → Manage feeds.</p>
+<p>To choose them yourself instead, press <b>Preview feeds now</b> (once the topic has a name and description). In 15–30 seconds you get:</p>
+<ul>
+  <li><b>From your feeds</b> — feeds you already have that suit the topic, each with a reason, already ticked. A feed that has gone quiet (no post within the Settings → RSS threshold) is shown with an amber <i>quiet</i> mark and left unticked.</li>
+  <li><b>New feeds to add</b> — feeds the AI found, each checked to work and to have posted recently, with its site, last post and a reason. Untick any you don't want.</li>
+  <li>A list of suggestions that were skipped and why (no feed, already in your feeds, gone quiet).</li>
+</ul>
+<p>Nothing is added until you save the topic; the ticked new feeds are then added to your feeds (and appear in the RSS reader) and linked to the topic.</p>
+
+<h2 id="settings">Settings</h2>
+<table>
+  <tr><th>Tab</th><th>What you can do</th></tr>
+  <tr><td>Daily brief</td><td><i>Maximum coverage</i> (aim for 15 stories) or <i>Highlights only</i> (fewer on quiet days).</td></tr>
+  <tr><td>Appearance</td><td>Choose a theme: DailyBrief (default), Catppuccin Mocha or Dracula (dark); Catppuccin Latte or Nord Snow Storm (light). Remembered per device; this manual follows it too.</td></tr>
+  <tr><td>AI</td><td>The AI model used for briefs and chat, optional different models per step, and the AI providers available. Each provider's <b>Prices</b> list fills itself in: prices are looked up automatically for every model the provider offers (and refreshed weekly). Prices may not be accurate — type over any you know better (it then shows <i>Set by you</i>, with <i>reset</i> to go back), or fill in any shown as —.</td></tr>
+  <tr><td>Search</td><td>Which web search service is used (the built-in one needs no key).</td></tr>
+  <tr><td>Schedule</td><td>Brief time and timezone, how often RSS feeds are checked, and <b>Run all now</b> to regenerate every topic.</td></tr>
+  <tr><td>RSS</td><td>How many days without a post before the dashboard flags a feed as quiet (default 30).</td></tr>
+  <tr><td>Usage</td><td>Tokens used by briefs and chats over the last 30 days, broken down by step and model, with costs where prices are set.</td></tr>
+  <tr><td>Account</td><td>Change your password; see signed-in devices and sign them out.</td></tr>
+  <tr><td>Data</td><td>Storage figures and an export of your saved articles.</td></tr>
+</table>
+
+<h2 id="faq">Questions &amp; troubleshooting</h2>
+<h3>An amber warning appears above my brief</h3>
+<div class="warn">For example: <b>Out of tokens / rate limited</b> — LiteLLM (openai) said: "You&#39;ve reached your usage limit…"</div>
+<p>The AI service couldn't finish the brief. The bold part explains the problem in plain English; the rest is the provider's own message. Common causes:</p>
+<ul>
+  <li><b>Out of tokens / rate limited</b> — the AI provider's usage or rate limit was reached. Wait for it to reset, then use <b>Regenerate</b>.</li>
+  <li><b>Sign-in to the provider failed</b> — the AI connection needs attention in Settings → AI.</li>
+  <li><b>Can't reach the AI provider</b> — the AI service is offline or unreachable; try again later.</li>
+  <li><b>The AI provider took too long</b> — the AI stopped sending anything for 3 minutes, or one request was still running after 10 minutes (stopped so a stuck model can't run up costs). Answers that keep arriving are never cut off, however long they take. The brief stops at that point; use <b>Regenerate</b> (or <b>Try again</b>) later, or pick a faster model in Settings → AI.</li>
+</ul>
+<p>The warning clears once a later run succeeds. The same messages appear in chat if an answer can't be written.</p>
+<h3>Why did a story I ignored not come back — and why did a saved one disappear from the grid?</h3>
+<p>That's by design: ignored stories are remembered and never resurface; saved and chatted articles move to Saved and Chats so the grid only holds what you haven't dealt with.</p>
+<h3>A story I've already read appeared again</h3>
+<p>DailyBrief brings back a recent story only when there is material news — for example a fix, a confirmation or new evidence. Ignore it if the update doesn't interest you.</p>
+<h3>An RSS article shows only a summary</h3>
+<p>Some sites block full-text fetching or need JavaScript. Use <b>Open original</b> to read it on the publisher's site.</p>
+<h3>Signing out</h3>
+<p>Use the account menu (top right) → <b>Sign out</b>. To sign out other devices, go to Settings → Account.</p>
+</div>
+
+<footer>DailyBrief user manual · version <span data-version>1.0.0-beta.3</span> · Your daily news, read for you.</footer>
+</main>
+</div>
+</body>
+</html>

@@ -1,0 +1,8 @@
+# secret_key is generated at each container start (SEARXNG_SECRET in docker-compose.yml); never commit one here.
+use_default_settings: true
+server:
+  limiter: false
+  image_proxy: false
+search:
+  safe_search: 0
+  formats: [html, json]

@@ -1,0 +1,25 @@
+# Secrets
+.env
+.env.*
+!.env.example
+*.token
+*.key
+*.pem
+
+# Runtime data
+data/
+
+# Build / deps
+node_modules/
+dist/
+*.tsbuildinfo
+.vite/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.log
+
+# Local archive of planning docs and development conversations (never committed)
+/archive/

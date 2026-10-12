@@ -1,0 +1,17 @@
+{
+  "name": "dailybrief",
+  "version": "1.0.0-beta.3",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev:server": "npm -w @dailybrief/server run dev",
+    "dev:web": "npm -w @dailybrief/web run dev",
+    "build": "npm -w @dailybrief/web run build && npm -w @dailybrief/server run build",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm -w @dailybrief/server test"
+  }
+}

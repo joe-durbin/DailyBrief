@@ -1,0 +1,38 @@
+{
+  "name": "@dailybrief/server",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --env-file=../../.env --watch src/index.ts",
+    "build": "esbuild src/index.ts --bundle --platform=node --format=esm --target=node24 --packages=external --outbase=src --outdir=dist",
+    "db:generate": "drizzle-kit generate",
+    "typecheck": "tsc -p .",
+    "test": "node --test --test-reporter=spec --test-concurrency=1 test/*.test.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.132.0",
+    "@dailybrief/shared": "*",
+    "@fastify/cookie": "^11.1.2",
+    "@fastify/helmet": "^13.1.1",
+    "@fastify/static": "^10.1.5",
+    "@mozilla/readability": "^0.6.0",
+    "@node-rs/argon2": "^2.2.2",
+    "better-sqlite3": "^13.0.3",
+    "croner": "^10.0.1",
+    "drizzle-orm": "^0.45.3",
+    "fast-xml-parser": "^5.11.2",
+    "fastify": "^5.12.5",
+    "linkedom": "^0.18.13",
+    "openai": "^7.30.0",
+    "pino": "^10.4.0",
+    "undici": "^8.11.2",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^26.6.4",
+    "drizzle-kit": "^0.31.11",
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2"
+  }
+}

@@ -1,0 +1,321 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg: #0e1116;
+  --color-surface: #151a21;
+  --color-surface-2: #1b212a;
+  --color-line: rgb(255 255 255 / 0.07);
+  --color-line-strong: rgb(255 255 255 / 0.12);
+  --color-ink: #e7eaee;
+  --color-muted: #98a2b3;
+  --color-accent: #7c8cff;
+  --color-danger: #f87171;
+  --color-warn: #f59e0b;
+  /* Text/icons drawn on an accent-filled background. */
+  --color-on-accent: #0b0d12;
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Source Serif 4 Variable", Georgia, serif;
+  --radius-card: 16px;
+  --ease-out-soft: cubic-bezier(0.2, 0, 0, 1);
+}
+
+/* Alternative themes (Settings → Appearance); DailyBrief above is the default. */
+:root {
+  color-scheme: dark;
+}
+[data-theme="catppuccin-mocha"] {
+  --color-bg: #1e1e2e;
+  --color-surface: #24273a;
+  --color-surface-2: #313244;
+  --color-line: rgb(205 214 244 / 0.08);
+  --color-line-strong: rgb(205 214 244 / 0.15);
+  --color-ink: #cdd6f4;
+  --color-muted: #a6adc8;
+  --color-accent: #cba6f7;
+  --color-danger: #f38ba8;
+  --color-warn: #fab387;
+  --color-on-accent: #1e1e2e;
+}
+[data-theme="dracula"] {
+  --color-bg: #21222c;
+  --color-surface: #282a36;
+  --color-surface-2: #343746;
+  --color-line: rgb(248 248 242 / 0.08);
+  --color-line-strong: rgb(248 248 242 / 0.15);
+  --color-ink: #f8f8f2;
+  --color-muted: #a4abc9;
+  --color-accent: #bd93f9;
+  --color-danger: #ff5555;
+  --color-warn: #ffb86c;
+  --color-on-accent: #21222c;
+}
+[data-theme="catppuccin-latte"] {
+  color-scheme: light;
+  --color-bg: #e6e9ef;
+  --color-surface: #eff1f5;
+  --color-surface-2: #f7f8fa;
+  --color-line: rgb(76 79 105 / 0.12);
+  --color-line-strong: rgb(76 79 105 / 0.22);
+  --color-ink: #4c4f69;
+  --color-muted: #6c6f85;
+  --color-accent: #8839ef;
+  --color-danger: #d20f39;
+  --color-warn: #df8e1d;
+  --color-on-accent: #ffffff;
+}
+[data-theme="nord-snow"] {
+  color-scheme: light;
+  --color-bg: #e5e9f0;
+  --color-surface: #eceff4;
+  --color-surface-2: #f5f7fa;
+  --color-line: rgb(46 52 64 / 0.12);
+  --color-line-strong: rgb(46 52 64 / 0.22);
+  --color-ink: #2e3440;
+  --color-muted: #4c566a;
+  --color-accent: #5e81ac;
+  --color-danger: #bf616a;
+  --color-warn: #c46d3e;
+  --color-on-accent: #ffffff;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-bg font-sans text-ink antialiased;
+    font-feature-settings: "cv11", "ss01";
+    -webkit-tap-highlight-color: transparent;
+  }
+  button,
+  a,
+  input {
+    touch-action: manipulation;
+  }
+  /* Native drop-down lists otherwise draw with the OS's light palette (Chromium honours these; iPad uses its own picker). */
+  select option,
+  select optgroup {
+    background-color: var(--color-surface-2);
+    color: var(--color-ink);
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+}
+
+/* Generating skeleton: slow diagonal shimmer; cells offset via animation-delay so it ripples across the grid. */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+}
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(105deg, transparent 30%, color-mix(in srgb, var(--color-ink) 6%, transparent) 50%, transparent 70%);
+  animation: shimmer 1.6s var(--ease-out-soft) infinite;
+  animation-delay: inherit;
+}
+@keyframes shimmer {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+/* Long-form reading typography for articles. */
+.prose-brief {
+  font-family: var(--font-serif);
+  font-size: 17px;
+  line-height: 1.7;
+  color: color-mix(in srgb, var(--color-ink) 92%, transparent);
+}
+.prose-brief p {
+  margin: 0 0 1.1em;
+}
+.prose-brief h2 {
+  font-family: var(--font-sans);
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--color-ink);
+  margin: 1.8em 0 0.6em;
+}
+.prose-brief ul,
+.prose-brief ol {
+  margin: 0 0 1.1em;
+  padding-left: 1.3em;
+}
+.prose-brief ul {
+  list-style: disc;
+}
+.prose-brief ol {
+  list-style: decimal;
+}
+.prose-brief li {
+  margin: 0.3em 0;
+}
+.prose-brief code {
+  font-family: "JetBrains Mono Variable", ui-monospace, monospace;
+  font-size: 0.85em;
+  background: var(--color-bg);
+  border: 1px solid var(--color-line);
+  border-radius: 6px;
+  padding: 0.1em 0.35em;
+}
+.prose-brief pre {
+  background: var(--color-bg);
+  border: 1px solid var(--color-line);
+  border-radius: 12px;
+  padding: 1em;
+  overflow-x: auto;
+  margin: 0 0 1.1em;
+}
+.prose-brief pre code {
+  border: 0;
+  padding: 0;
+}
+.prose-brief a {
+  color: var(--color-accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.prose-brief a.cite {
+  font-family: var(--font-sans);
+  font-size: 0.68em;
+  font-weight: 600;
+  vertical-align: super;
+  line-height: 0;
+  text-decoration: none;
+  padding: 0 0.1em;
+}
+.prose-brief blockquote {
+  border-left: 2px solid var(--color-line-strong);
+  padding-left: 1em;
+  color: var(--color-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton::after {
+    animation: none;
+  }
+}
+
+/* Third-party article HTML in the RSS reader. */
+.prose-reader img,
+.prose-reader video {
+  max-width: 100%;
+  height: auto;
+  border-radius: 12px;
+  margin: 1.4em auto;
+}
+.prose-reader figure {
+  margin: 1.4em 0;
+}
+.prose-reader figcaption {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  color: var(--color-muted);
+  text-align: center;
+  margin-top: -0.6em;
+}
+.prose-reader h1,
+.prose-reader h3,
+.prose-reader h4 {
+  font-family: var(--font-sans);
+  font-weight: 650;
+  color: var(--color-ink);
+  margin: 1.6em 0 0.5em;
+}
+.prose-reader table {
+  display: block;
+  overflow-x: auto;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  border-collapse: collapse;
+  margin: 0 0 1.1em;
+}
+.prose-reader th,
+.prose-reader td {
+  border: 1px solid var(--color-line-strong);
+  padding: 0.4em 0.7em;
+}
+
+/* Radix dialogs: fade + slight scale in, quicker fade out (Radix waits for the closing animation). */
+.dialog-overlay[data-state="open"] {
+  animation: fade-in 180ms var(--ease-out-soft);
+}
+.dialog-overlay[data-state="closed"] {
+  animation: fade-out 140ms ease-in;
+}
+.dialog-content[data-state="open"] {
+  animation: dialog-in 200ms var(--ease-out-soft);
+}
+.dialog-content[data-state="closed"] {
+  animation: dialog-out 140ms ease-in;
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes fade-out {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes dialog-in {
+  from {
+    opacity: 0;
+    scale: 0.98;
+  }
+}
+@keyframes dialog-out {
+  to {
+    opacity: 0;
+    scale: 0.98;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dialog-overlay,
+  .dialog-content {
+    animation-duration: 1ms !important;
+  }
+}
+
+/* Assistant answers in article chat. */
+.chat-answer p {
+  margin: 0 0 0.7em;
+}
+.chat-answer p:last-of-type {
+  margin-bottom: 0;
+}
+.chat-answer ul,
+.chat-answer ol {
+  margin: 0 0 0.7em;
+  padding-left: 1.2em;
+}
+.chat-answer ul {
+  list-style: disc;
+}
+.chat-answer ol {
+  list-style: decimal;
+}
+.chat-answer a {
+  color: var(--color-accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.chat-answer code {
+  font-family: "JetBrains Mono Variable", ui-monospace, monospace;
+  font-size: 0.85em;
+  background: var(--color-bg);
+  border-radius: 6px;
+  padding: 0.1em 0.35em;
+}
+.chat-answer strong {
+  color: var(--color-ink);
+}

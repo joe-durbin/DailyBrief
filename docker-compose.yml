@@ -1,0 +1,34 @@
+services:
+  dailybrief:
+    build: .
+    image: dailybrief:latest
+    env_file: .env
+    environment:
+      # Inside the compose network SearXNG is reachable by service name.
+      SEARXNG_URL: http://searxng:8080
+    ports:
+      # All interfaces: reachable from other devices on the LAN (login required).
+      - "0.0.0.0:8080:8080"
+    volumes:
+      - dailybrief-data:/data
+    extra_hosts:
+      # LiteLLM (the AI proxy) runs on the host on port 4000; reach it as host.docker.internal.
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - searxng
+    restart: unless-stopped
+
+  searxng:
+    image: searxng/searxng:latest
+    # SearXNG needs a secret key, but with image proxy and limiter off nothing depends on it lasting:
+    # generate a fresh one each start instead of keeping one in .env.
+    entrypoint: ["/bin/sh", "-c", "export SEARXNG_SECRET=$$(head -c 32 /dev/urandom | base64 | tr -dc a-zA-Z0-9) && exec /usr/local/searxng/entrypoint.sh"]
+    volumes:
+      - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
+    # Loopback only, for running the server outside Docker (npm run dev:server); the app uses the compose network.
+    ports:
+      - "127.0.0.1:8888:8080"
+    restart: unless-stopped
+
+volumes:
+  dailybrief-data:
