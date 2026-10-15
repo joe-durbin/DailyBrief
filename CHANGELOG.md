@@ -2,6 +2,12 @@
 
 All notable changes to DailyBrief. Versions follow [Semantic Versioning](https://semver.org/); the version shown in the app and the manual comes from the root `package.json`.
 
+## 1.0.0-beta.4 — 2026-10-15
+
+### Changed
+- **Today's themes:** the dashboard panel now has a refresh icon to regenerate themes without touching briefs, including after a failed attempt. A pending run disables the icon, and failures show a retry message.
+- Theme titles and summaries no longer have arbitrary character ceilings; empty text is still rejected. Opening the dashboard no longer starts a theme run on its own — scheduled or manually generated briefs still trigger the automatic update.
+
 ## 1.0.0-beta.3 — 2026-10-10
 
 ### Changed

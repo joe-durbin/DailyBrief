@@ -1,12 +1,13 @@
 import type { AppSettings, AuthState, Dashboard } from "@dailybrief/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
-import { AlertTriangle, ArrowUpRight, Check, X, BookmarkCheck, CheckCircle2, Loader2, MessagesSquare, Rss, Sparkles, ThumbsDown, ThumbsUp } from "lucide-react";
+import { AlertTriangle, ArrowUpRight, Check, X, BookmarkCheck, CheckCircle2, Loader2, MessagesSquare, RefreshCw, Rss, Sparkles, ThumbsDown, ThumbsUp } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useState, type ReactNode } from "react";
 import { useNavigate } from "react-router";
 import { api } from "../api.ts";
 import { ArticleOverlay, type TriageAction } from "../briefs/ArticleOverlay.tsx";
+import { IconButton } from "../ui/IconButton.tsx";
 import { AiReminder, Welcome } from "./Welcome.tsx";
 import { shortDate, timeAgo, usd } from "../lib/format.ts";
 import { useNow } from "../lib/now.ts";
@@ -47,6 +48,10 @@ export function DashboardView() {
   const rate = useMutation({
     mutationFn: ({ id, rating }: { id: number; rating: "up" | "down" | null }) => api(`/api/articles/${id}/rating`, { method: "PUT", body: { rating } }),
     onSettled: (_d, _e, { id }) => Promise.all([queryClient.invalidateQueries({ queryKey: ["article", id] }), refresh()]),
+  });
+  const regenerateThemes = useMutation({
+    mutationFn: () => api("/api/dashboard/themes/refresh", { method: "POST" }),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
   });
   const onTriage = (action: TriageAction) => {
     if (!open) return;
@@ -156,7 +161,19 @@ export function DashboardView() {
 
           <div className="grid gap-4 lg:grid-cols-3">
             <motion.div {...reveal()} className="lg:col-span-2">
-              <Panel title="Today's themes" icon={<Sparkles className="size-4 text-accent" />}>
+              <Panel
+                title="Today's themes"
+                icon={<Sparkles className="size-4 text-accent" />}
+                action={
+                  <IconButton
+                    icon={RefreshCw}
+                    label={d.themes.status === "pending" || regenerateThemes.isPending ? "Finding themes…" : "Regenerate today's themes"}
+                    disabled={d.themes.status === "pending" || regenerateThemes.isPending}
+                    iconClassName={clsx((d.themes.status === "pending" || regenerateThemes.isPending) && "animate-spin")}
+                    onClick={() => regenerateThemes.mutate()}
+                  />
+                }
+              >
                 {d.themes.items.length ? (
                   <ul className="space-y-4">
                     {d.themes.items.map((th) => (
@@ -187,9 +204,15 @@ export function DashboardView() {
                       <div key={w} className="h-3 rounded-full bg-line" style={{ width: `${w}%` }} />
                     ))}
                   </div>
+                ) : d.themes.status === "failed" ? (
+                  <p role="alert" className="text-sm text-warn">Themes couldn't be generated. Use the refresh button to try again.</p>
                 ) : (
-                  <Empty>Themes appear once today's briefs have been written.</Empty>
+                  <Empty>No themes yet. They're normally written with today's briefs; use the refresh button to try again.</Empty>
                 )}
+                {d.themes.status === "failed" && d.themes.items.length > 0 && (
+                  <p role="alert" className="mt-3 text-sm text-warn">Themes couldn't be regenerated. Use the refresh button to try again.</p>
+                )}
+                {regenerateThemes.error && <p role="alert" className="mt-3 text-sm text-warn">{regenerateThemes.error.message}</p>}
               </Panel>
             </motion.div>
 
@@ -242,13 +265,16 @@ export function DashboardView() {
   );
 }
 
-function Panel({ title, icon, children }: { title: string; icon?: ReactNode; children: ReactNode }) {
+function Panel({ title, icon, action, children }: { title: string; icon?: ReactNode; action?: ReactNode; children: ReactNode }) {
   return (
     <section className="h-full rounded-2xl border border-line bg-surface p-5">
-      <h2 className="mb-3.5 flex items-center gap-2 text-xs font-semibold tracking-wide text-muted uppercase">
-        {icon}
-        {title}
-      </h2>
+      <div className="mb-3.5 flex min-h-6 items-center justify-between gap-2">
+        <h2 className="flex items-center gap-2 text-xs font-semibold tracking-wide text-muted uppercase">
+          {icon}
+          {title}
+        </h2>
+        {action}
+      </div>
       {children}
     </section>
   );

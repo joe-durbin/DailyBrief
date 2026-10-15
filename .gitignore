@@ -9,6 +9,8 @@
 # Runtime data
 data/
 
+/dailybrief-backup.tgz
+
 # Build / deps
 node_modules/
 dist/

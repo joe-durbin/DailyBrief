@@ -10,7 +10,7 @@ export function useLiveEvents() {
     source.onmessage = (msg) => {
       const event = JSON.parse(msg.data) as AppEvent;
       void queryClient.invalidateQueries({ queryKey: ["dashboard"] });
-      if (event.type === "themes.ready") return;
+      if (!("topicId" in event)) return;
       void queryClient.invalidateQueries({ queryKey: ["brief", event.topicId] });
       if (event.type !== "article.updated") void queryClient.invalidateQueries({ queryKey: ["topics"] });
       if (event.type === "brief.status") {

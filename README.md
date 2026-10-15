@@ -2,7 +2,7 @@
 
 A self-hosted daily news brief. You describe the topics you follow; every morning DailyBrief researches each one and gives you up to 15 deduplicated stories as a grid of cards, each a short article with its sources. Open one to read it, chat with the AI about it, then save or ignore it. A two-pane RSS reader, saved articles, chats and a dashboard sit alongside. Runs in Docker on your home network; use it from any modern browser, on a computer or a tablet.
 
-**Status:** beta (1.0.0-beta.3) — see [CHANGELOG.md](CHANGELOG.md). The full user manual is built into the app (the **?** button) and is [README.html](README.html) in this repository.
+**Status:** beta (1.0.0-beta.4) — see [CHANGELOG.md](CHANGELOG.md). The full user manual is built into the app (the **?** button) and is [README.html](README.html) in this repository.
 
 ## Requirements
 

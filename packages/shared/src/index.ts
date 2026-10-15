@@ -249,7 +249,7 @@ export const ratingSchema = z.object({ rating: z.enum(["up", "down"]).nullable()
 export type AppEvent =
   | { type: "brief.status"; topicId: number; briefId: number; status: string; detail: string | null; progress: number }
   | { type: "article.ready" | "article.updated" | "article.removed"; topicId: number; briefId: number; articleId: number; slot: number }
-  | { type: "themes.ready"; date: string };
+  | { type: "themes.ready" | "themes.failed"; date: string };
 
 export const TOPIC_ACCENTS = ["#7C8CFF", "#2DD4BF", "#F59E0B", "#F472B6", "#38BDF8", "#A78BFA", "#34D399", "#FB7185"] as const;
 
@@ -356,7 +356,7 @@ export type Dashboard = {
   aiReady: boolean;
   topics: DashboardTopic[];
   rssUnread: number;
-  themes: { status: "ready" | "pending" | "none"; items: DashboardTheme[] };
+  themes: { status: "ready" | "pending" | "failed" | "none"; items: DashboardTheme[] };
   mentions: Mention[];
   continue: {
     chat: { kind: "article" | "feed-item"; id: number; title: string; lastQuestion: string; at: number } | null;

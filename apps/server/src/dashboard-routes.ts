@@ -54,7 +54,7 @@ export function registerDashboardRoutes(app: FastifyInstance, db: Db, queue: Bri
 
     // ---------- themes ----------
     const todays = articlesForDate(db, today);
-    const pending = themes.refresh(today);
+    const themeState = themes.status(today);
     const stored = db.select().from(dailyThemes).where(eq(dailyThemes.date, today)).get();
     const byId = new Map(todays.map((a) => [a.id, a]));
     const themeItems = (stored?.themes ?? []).map((t) => {
@@ -258,7 +258,7 @@ export function registerDashboardRoutes(app: FastifyInstance, db: Db, queue: Bri
       aiReady,
       topics: topicCards,
       rssUnread,
-      themes: { status: themeItems.length ? "ready" : pending ? "pending" : "none", items: themeItems },
+      themes: { status: themeState === "pending" ? "pending" : themeState === "failed" ? "failed" : themeItems.length ? "ready" : "none", items: themeItems },
       mentions,
       continue: {
         chat,
@@ -276,5 +276,12 @@ export function registerDashboardRoutes(app: FastifyInstance, db: Db, queue: Bri
       },
       health: { runs, aiToday, failingFeeds },
     };
+  });
+
+  app.post("/api/dashboard/themes/refresh", async (_req, reply) => {
+    const today = localDate();
+    if (articlesForDate(db, today).length < 4) return reply.code(409).send({ error: "At least four articles from today's briefs are needed to find themes." });
+    themes.refresh(today, true);
+    return { status: "pending" };
   });
 }
