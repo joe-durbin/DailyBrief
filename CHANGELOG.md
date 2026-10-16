@@ -2,6 +2,16 @@
 
 All notable changes to DailyBrief. Versions follow [Semantic Versioning](https://semver.org/); the version shown in the app and the manual comes from the root `package.json`.
 
+## 1.0.0-beta.6 — 2026-10-16
+
+### Fixed
+- When the AI returns malformed or truncated article JSON, retry only that article once. Other articles and pipeline steps are not repeated; token usage for malformed responses is recorded when supplied by the provider. A second failure remains visible as a warning.
+
+## 1.0.0-beta.5 — 2026-10-15
+
+### Fixed
+- **Most mentioned this week:** articles from deleted topics no longer contribute tags on the dashboard. The articles themselves are kept.
+
 ## 1.0.0-beta.4 — 2026-10-15
 
 ### Changed

@@ -7,11 +7,14 @@ import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { buildApp } from "../src/app.ts";
 import type { Db } from "../src/db/index.ts";
-import { articles, briefs, chatMessages, feedItems, feeds, modelPrices, providers, settings, sources, topics } from "../src/db/schema.ts";
+import { articles, briefs, chatMessages, feedItems, feeds, feedTopics, llmCalls, modelPrices, providers, settings, sources, topics } from "../src/db/schema.ts";
 import { refreshPrices } from "../src/pipeline/prices.ts";
 import { makeSecretBox } from "../src/crypto.ts";
 import { loadConfig } from "../src/config.ts";
-import { AiTimeoutError, toAiError } from "../src/llm/errors.ts";
+import { AiError, AiTimeoutError, toAiError } from "../src/llm/errors.ts";
+import { createEventBus } from "../src/events.ts";
+import type { LlmRouter } from "../src/llm/router.ts";
+import { generateBrief, localDate } from "../src/pipeline/generate.ts";
 import { createLlmRouter } from "../src/llm/router.ts";
 import { createServer } from "node:http";
 import { once } from "node:events";
@@ -206,5 +209,99 @@ describe("AI call limits", () => {
       server.closeAllConnections();
       server.close();
     }
+  });
+});
+
+describe("structured AI output", () => {
+  it("identifies truncated and malformed tool arguments without retrying successful calls", async () => {
+    const replies = [
+      { arguments: '{"answer":"complete"}', finish: "length" },
+      { arguments: '{"answer":"unfinished', finish: "tool_calls" },
+      { arguments: '{"answer":42}', finish: "tool_calls" },
+      { arguments: '{"answer":"done"}', finish: "tool_calls" },
+    ];
+    let requests = 0;
+    const server = createServer((_req, res) => {
+      const reply = replies[requests++];
+      assert.ok(reply);
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      const send = (o: unknown) => res.write(`data: ${JSON.stringify(o)}\n\n`);
+      send({ id: "c", object: "chat.completion.chunk", created: 0, model: "m", choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: "t", type: "function", function: { name: "submit", arguments: reply.arguments } }] }, finish_reason: null }] });
+      send({ id: "c", object: "chat.completion.chunk", created: 0, model: "m", choices: [{ index: 0, delta: {}, finish_reason: reply.finish }] });
+      send({ id: "c", object: "chat.completion.chunk", created: 0, model: "m", choices: [], usage: { prompt_tokens: 10, completion_tokens: 5 } });
+      res.end("data: [DONE]\n\n");
+    });
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const address = server.address();
+    const port = typeof address === "object" && address ? address.port : 0;
+    const p = db.insert(providers).values({ name: "Malformed test", kind: "openai_compatible", baseUrl: `http://127.0.0.1:${port}/v1` }).returning().get();
+    db.insert(settings).values({ key: "ai.roles", value: { writer: { providerId: p.id, model: "m" } } }).onConflictDoUpdate({ target: settings.key, set: { value: { writer: { providerId: p.id, model: "m" } } } }).run();
+    const llm = createLlmRouter(db, makeSecretBox("x".repeat(40)));
+    const ask = () => llm.call("writer", { system: "s", user: "u", toolName: "submit", toolDescription: "d", schema: z.object({ answer: z.string() }) });
+    try {
+      await assert.rejects(ask(), (e: unknown) => e instanceof Error && "invalidOutput" in e && e.invalidOutput === true && /output limit/.test(e.message));
+      await assert.rejects(ask(), (e: unknown) => e instanceof Error && "invalidOutput" in e && e.invalidOutput === true && /Invalid submit JSON/.test(e.message));
+      await assert.rejects(ask(), (e: unknown) => e instanceof Error && "invalidOutput" in e && e.invalidOutput === true && /Invalid submit output/.test(e.message));
+      assert.deepEqual(await ask(), { answer: "done" });
+      assert.equal(requests, 4);
+      const calls = db.select().from(llmCalls).where(eq(llmCalls.providerId, p.id)).all();
+      assert.deepEqual(calls.map((c) => [c.ok, c.tokensIn, c.tokensOut]), [[false, 10, 5], [false, 10, 5], [false, 10, 5], [true, 10, 5]]);
+    } finally {
+      server.closeAllConnections();
+      server.close();
+    }
+  });
+});
+
+describe("brief writer recovery", () => {
+  it("retries one malformed article once without regenerating the other stages", async () => {
+    const topic = db.insert(topics).values({ name: "Recovery test", description: "Follow software security releases", accent: "#7C8CFF" }).returning().get();
+    const feed = db.insert(feeds).values({ name: "Example feed", url: "https://example.com/feed", lastFetchedAt: new Date() }).returning().get();
+    db.insert(feedTopics).values({ feedId: feed.id, topicId: topic.id }).run();
+    db.insert(feedItems).values({ feedId: feed.id, guid: "one", url: "https://example.com/story", title: "A significant security release", publishedAt: new Date(), contentText: "The release fixes a serious security flaw. ".repeat(20) }).run();
+    const calls: string[] = [];
+    let rejectWriter = false;
+    let alwaysMalformed = false;
+    const llm: LlmRouter = {
+      async call(_role, req) {
+        calls.push(req.toolName);
+        if (req.toolName === "submit_queries") return { queries: ["security release details"] } as never;
+        if (req.toolName === "submit_stories") {
+          return { clusters: [{ candidateIds: [1], canonical: "A significant security release fixes a flaw", entities: [], relevance: 5, significance: 5, substance: 5, sourceQuality: 5, freshness: 5, preferenceFit: 2.5, eventDate: localDate(), exclude: null, recentMatch: null, materiallyNew: false }] } as never;
+        }
+        if (req.toolName === "submit_selection") return { selected: [1] } as never;
+        if (req.toolName === "submit_article" && rejectWriter) throw new AiError("Out of tokens / rate limited", "quota exhausted", "Fake");
+        if (req.toolName === "submit_article" && (alwaysMalformed || calls.filter((name) => name === "submit_article").length === 1)) {
+          throw Object.assign(new AiError(null, "Incomplete submit_article output (model reached its output limit)", "Fake"), { invalidOutput: true });
+        }
+        if (req.toolName === "submit_article") {
+          return { headline: "Security release fixes a serious flaw", summary: "The release fixes a serious issue affecting deployed systems. ".repeat(4), body_md: "The release fixes a serious security flaw [1]. ".repeat(20), source_ids: [1], event_date: localDate() } as never;
+        }
+        throw new Error(`Unexpected ${req.toolName}`);
+      },
+      chat() { throw new Error("Chat not expected"); },
+    };
+    const briefId = await generateBrief({ db, llm, events: createEventBus(), log: app.log, search: async () => [] }, topic.id, "scheduled", { maxArticles: 1 });
+    assert.equal(db.select().from(briefs).where(eq(briefs.id, briefId)).get()?.status, "complete");
+    assert.equal(db.select().from(articles).where(eq(articles.briefId, briefId)).all().length, 1);
+    assert.deepEqual(calls, ["submit_queries", "submit_stories", "submit_selection", "submit_article", "submit_article"]);
+    const blockedTopic = db.insert(topics).values({ name: "Quota test", description: "Follow software security releases", accent: "#7C8CFF" }).returning().get();
+    db.insert(feedTopics).values({ feedId: feed.id, topicId: blockedTopic.id }).run();
+    rejectWriter = true;
+    calls.length = 0;
+    const blockedId = await generateBrief({ db, llm, events: createEventBus(), log: app.log, search: async () => [] }, blockedTopic.id, "scheduled", { maxArticles: 1 });
+    assert.equal(db.select().from(briefs).where(eq(briefs.id, blockedId)).get()?.status, "failed");
+    assert.deepEqual(calls, ["submit_queries", "submit_stories", "submit_selection", "submit_article"], "a quota failure does not trigger another paid call");
+    const exhaustedTopic = db.insert(topics).values({ name: "Exhausted retry test", description: "Follow software security releases", accent: "#7C8CFF" }).returning().get();
+    db.insert(feedTopics).values({ feedId: feed.id, topicId: exhaustedTopic.id }).run();
+    rejectWriter = false;
+    alwaysMalformed = true;
+    calls.length = 0;
+    const exhaustedId = await generateBrief({ db, llm, events: createEventBus(), log: app.log, search: async () => [] }, exhaustedTopic.id, "scheduled", { maxArticles: 1 });
+    const exhausted = db.select().from(briefs).where(eq(briefs.id, exhaustedId)).get();
+    assert.equal(exhausted?.status, "failed");
+    assert.match(exhausted?.error ?? "", /Incomplete submit_article output/);
+    assert.deepEqual(calls, ["submit_queries", "submit_stories", "submit_selection", "submit_article", "submit_article"], "malformed output gets only one retry");
   });
 });

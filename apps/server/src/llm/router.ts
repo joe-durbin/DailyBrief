@@ -4,8 +4,8 @@ import { z } from "zod";
 import type { SecretBox } from "../crypto.ts";
 import type { Db } from "../db/index.ts";
 import { llmCalls, modelPrices, providers, settings } from "../db/schema.ts";
-import { AiTimeoutError, toAiError } from "./errors.ts";
-import { createProvider, type ChatRequest, type LlmProvider } from "./provider.ts";
+import { AiError, AiTimeoutError, toAiError } from "./errors.ts";
+import { createProvider, MalformedToolOutput, type ChatRequest, type LlmProvider } from "./provider.ts";
 
 /**
  * AI calls are streamed and only stopped when they stall: no data for SILENCE_MS. A call that keeps producing is
@@ -105,7 +105,13 @@ export function createLlmRouter(db: Db, box: SecretBox, limits: CallLimits = { s
         clearTimeout(cap);
       },
       /** The caller's own cancellation passes through as is; our limits become a timeout; anything else is the provider's failure, explained. */
-      fail: (e: unknown): unknown => (timeout ?? (callerSignal?.aborted ? e : toAiError(e, source))),
+      fail: (e: unknown): unknown =>
+        timeout ??
+        (callerSignal?.aborted
+          ? e
+          : e instanceof MalformedToolOutput
+            ? Object.assign(new AiError(null, e.message, source, { cause: e }), { invalidOutput: true })
+            : toAiError(e, source)),
     };
   };
 
@@ -128,7 +134,7 @@ export function createLlmRouter(db: Db, box: SecretBox, limits: CallLimits = { s
         })
         .catch((e: unknown) => {
           const err = limit.fail(e);
-          record(role, choice, ctx, started, false, undefined, err instanceof Error ? err.message : String(err));
+          record(role, choice, ctx, started, false, e instanceof MalformedToolOutput ? e.usage : undefined, err instanceof Error ? err.message : String(err));
           throw err;
         })
         .finally(limit.done);
@@ -136,8 +142,7 @@ export function createLlmRouter(db: Db, box: SecretBox, limits: CallLimits = { s
       if (!parsed.success) {
         const msg = `Invalid ${req.toolName} output: ${z.prettifyError(parsed.error).slice(0, 500)}`;
         record(role, choice, ctx, started, false, res.usage, msg);
-        // A malformed answer is a content problem, not an outage: let the caller retry with feedback.
-        throw Object.assign(new Error(msg), { invalidOutput: true });
+        throw Object.assign(new AiError(null, msg, source), { invalidOutput: true });
       }
       record(role, choice, ctx, started, true, res.usage);
       return parsed.data;

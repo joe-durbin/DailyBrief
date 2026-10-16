@@ -17,6 +17,16 @@ type StructuredRequest = {
 };
 
 type StructuredResult = { output: unknown; usage: { inputTokens: number; outputTokens: number } };
+/** A tool response ended without usable JSON. Its token usage is still billable. */
+export class MalformedToolOutput extends Error {
+  readonly invalidOutput = true;
+  readonly usage: StructuredResult["usage"];
+
+  constructor(message: string, usage: StructuredResult["usage"]) {
+    super(message);
+    this.usage = usage;
+  }
+}
 
 type ChatTurn = { role: "user" | "assistant"; content: string };
 export type ChatRequest = { model: string; system: string; messages: ChatTurn[]; maxTokens?: number; signal?: AbortSignal };
@@ -123,7 +133,13 @@ export function createProvider({ kind, baseUrl, apiKey }: ProviderConfig): LlmPr
         if (chunk.usage) Object.assign(usage, { inputTokens: chunk.usage.prompt_tokens, outputTokens: chunk.usage.completion_tokens });
       }
       if (called === false) throw new Error(`Model did not call ${req.tool.name} (finish: ${finish})`);
-      return { output: JSON.parse(args), usage };
+      if (finish === "length") throw new MalformedToolOutput(`Incomplete ${req.tool.name} output (model reached its output limit)`, usage);
+      try {
+        return { output: JSON.parse(args), usage };
+      } catch (e) {
+        if (!(e instanceof SyntaxError)) throw e;
+        throw new MalformedToolOutput(`Invalid ${req.tool.name} JSON: ${e.message}`, usage);
+      }
     },
 
     chat(req) {

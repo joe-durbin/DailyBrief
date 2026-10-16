@@ -76,7 +76,8 @@ export function registerDashboardRoutes(app: FastifyInstance, db: Db, queue: Bri
     const recent = db
       .select({ entities: articles.entities, createdAt: articles.createdAt })
       .from(articles)
-      .where(gte(articles.createdAt, new Date(now - 14 * DAY)))
+      .innerJoin(topics, eq(topics.id, articles.topicId))
+      .where(and(gte(articles.createdAt, new Date(now - 14 * DAY)), isNull(topics.deletedAt)))
       .all();
     const tally = new Map<string, { name: string; week: number; prev: number }>();
     for (const r of recent) {

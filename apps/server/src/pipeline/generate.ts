@@ -420,17 +420,24 @@ async function writeStory(deps: PipelineDeps, topic: typeof topics.$inferSelect,
   const ids = new Set(srcs.map((_, i) => i + 1));
   let fix = feedback;
   for (let attempt = 0; attempt < 2; attempt++) {
-    const draft = await deps.llm.call(
-      "writer",
-      {
-        ...writerPrompt(topic, story.canonical, srcs.map((s, i) => ({ id: i + 1, title: s.title, publisher: s.publisher, date: formatHint(s.published), text: s.text.slice(0, SOURCE_CHARS) })), localDate(), fix),
-        toolName: "submit_article",
-        toolDescription: "Submit the finished article",
-        schema: articleSchema,
-        maxTokens: 6_000,
-      },
-      ctx,
-    );
+    let draft: ArticleDraft;
+    try {
+      draft = await deps.llm.call(
+        "writer",
+        {
+          ...writerPrompt(topic, story.canonical, srcs.map((s, i) => ({ id: i + 1, title: s.title, publisher: s.publisher, date: formatHint(s.published), text: s.text.slice(0, SOURCE_CHARS) })), localDate(), fix),
+          toolName: "submit_article",
+          toolDescription: "Submit the finished article",
+          schema: articleSchema,
+          maxTokens: 6_000,
+        },
+        ctx,
+      );
+    } catch (e) {
+      if (attempt !== 0 || !(e instanceof Error) || !("invalidOutput" in e) || e.invalidOutput !== true) throw e;
+      fix = [feedback, e.message].filter(Boolean).join("\n");
+      continue;
+    }
     const problem = validateDraft(draft, ids);
     if (!problem) {
       const usedIds = [...new Set([...draft.source_ids, ...[...draft.body_md.matchAll(/\[(\d+)\]/g)].map((m) => Number(m[1]))])].sort((a, b) => a - b);

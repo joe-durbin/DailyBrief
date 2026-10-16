@@ -76,7 +76,7 @@
 <body>
 <header class="top">
   <svg viewBox="0 0 32 32" width="24" height="24" aria-hidden="true"><rect width="32" height="32" rx="8" style="fill: var(--color-surface-2)"/><path d="M16 6l8 10-8 10-8-10z" style="fill: var(--color-accent)"/><path d="M16 11l4 5-4 5-4-5z" style="fill: var(--color-surface-2)"/></svg>
-  <strong>DailyBrief</strong><span>User manual · version <span data-version>1.0.0-beta.4</span></span>
+  <strong>DailyBrief</strong><span>User manual · version <span data-version>1.0.0-beta.6</span></span>
 </header>
 
 <div class="layout">
@@ -129,7 +129,7 @@
   <li><b>Quiet feeds</b> — if an RSS feed hasn't posted for 30 days (change this in Settings → RSS), a warning appears at the top: press <b>✓</b> to remove the feed (anything you saved from it is kept) or <b>✕</b> to keep it and hide the warning. It comes back only if the feed posts again and then goes quiet for that long again.</li>
   <li><b>Continue where you left off</b> — the last RSS article you read, saved articles you haven't opened since saving them, and your latest chat — in the same order as the top bar.</li>
   <li><b>Today's themes</b> — written by the AI once the morning's briefs are done: the threads that connect stories across your topics, each with its articles. Click any article to read it. Use the refresh icon at the top right to rewrite today's themes without regenerating briefs; it also retries a failed attempt. The button spins while the AI works, and a failed attempt can be retried again.</li>
-  <li><b>Most mentioned this week</b> — the companies, products, people and identifiers that keep coming up. <span class="pill">NEW</span> means they weren't mentioned the week before; an arrow means they're rising.</li>
+  <li><b>Most mentioned this week</b> — the companies, products, people and identifiers that keep coming up in your current topics. Mentions from deleted topics are not counted. <span class="pill">NEW</span> means they weren't mentioned the week before; an arrow means they're rising.</li>
   <li><b>Your week</b> — brief cards opened, saved and ignored per day, RSS articles read, your ratings and the publishers you rate highest, chats and the size of Saved.</li>
   <li><b>System health</b> — how this morning's runs went, today's AI use for each model that was used (calls and tokens, plus cost where prices are set), and any RSS feeds that are failing.</li>
 </ul>
@@ -235,12 +235,13 @@
 <h2 id="faq">Questions &amp; troubleshooting</h2>
 <h3>An amber warning appears above my brief</h3>
 <div class="warn">For example: <b>Out of tokens / rate limited</b> — LiteLLM (openai) said: "You&#39;ve reached your usage limit…"</div>
-<p>The AI service couldn't finish the brief. The bold part explains the problem in plain English; the rest is the provider's own message. Common causes:</p>
+<p>The AI service couldn't finish the brief. The bold part explains a recognised problem; the rest gives details from the provider or describes an invalid answer. Common causes:</p>
 <ul>
   <li><b>Out of tokens / rate limited</b> — the AI provider's usage or rate limit was reached. Wait for it to reset, then use <b>Regenerate</b>.</li>
   <li><b>Sign-in to the provider failed</b> — the AI connection needs attention in Settings → AI.</li>
   <li><b>Can't reach the AI provider</b> — the AI service is offline or unreachable; try again later.</li>
   <li><b>The AI provider took too long</b> — the AI stopped sending anything for 3 minutes, or one request was still running after 10 minutes (stopped so a stuck model can't run up costs). Answers that keep arriving are never cut off, however long they take. The brief stops at that point; use <b>Regenerate</b> (or <b>Try again</b>) later, or pick a faster model in Settings → AI.</li>
+  <li><b>Invalid or incomplete article response</b> — DailyBrief checks the AI's answer locally and tries that article once more. If both attempts fail, the completed articles stay available and the warning names the problem.</li>
 </ul>
 <p>The warning clears once a later run succeeds. The same messages appear in chat if an answer can't be written.</p>
 <h3>Why did a story I ignored not come back — and why did a saved one disappear from the grid?</h3>
@@ -253,7 +254,7 @@
 <p>Use the account menu (top right) → <b>Sign out</b>. To sign out other devices, go to Settings → Account.</p>
 </div>
 
-<footer>DailyBrief user manual · version <span data-version>1.0.0-beta.4</span> · Your daily news, read for you.</footer>
+<footer>DailyBrief user manual · version <span data-version>1.0.0-beta.6</span> · Your daily news, read for you.</footer>
 </main>
 </div>
 </body>
