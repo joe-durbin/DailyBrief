@@ -2,6 +2,11 @@
 
 All notable changes to DailyBrief. Versions follow [Semantic Versioning](https://semver.org/); the version shown in the app and the manual comes from the root `package.json`.
 
+## 1.0.0-beta.7 — 2026-10-16
+
+### Fixed
+- Finished briefs no longer leave holes when an article was removed during generation. Saved and ignored cards still leave their positions empty; existing briefs show the corrected layout without regeneration.
+
 ## 1.0.0-beta.6 — 2026-10-16
 
 ### Fixed

@@ -64,16 +64,21 @@ export function registerBriefRoutes(app: FastifyInstance, db: Db, queue: BriefQu
       const cards = db
         .select({ id: articles.id, slot: articles.slot, headline: articles.headline, summary: articles.summary, publishedAt: articles.publishedAt, state: articles.state, rating: articles.rating })
         .from(articles)
-        .where(and(eq(articles.briefId, shown.id), eq(articles.state, "active")))
+        .where(eq(articles.briefId, shown.id))
+        .orderBy(asc(articles.slot))
         .all();
-      const ids = cards.map((c) => c.id);
+      const ids = cards.filter((c) => c.state === "active").map((c) => c.id);
       const srcRows = ids.length
         ? db.select({ articleId: sources.articleId, publisher: sources.publisher, position: sources.position }).from(sources).where(inArray(sources.articleId, ids)).orderBy(asc(sources.position)).all()
         : [];
-      for (const c of cards) {
-        const own = srcRows.filter((s) => s.articleId === c.id);
-        if (c.slot >= 0 && c.slot < BRIEF_SIZE) {
-          slots[c.slot] = { ...c, publishedAt: c.publishedAt?.getTime() ?? null, publisher: own[0]?.publisher ?? "", sourceCount: own.length };
+      for (const [order, c] of cards.entries()) {
+        if (c.state !== "active") continue;
+        // A finished brief closes gaps left by failed/removed stories; saved and ignored cards still reserve their cells.
+        // While writing, keep original slots so streamed cards do not jump around.
+        const slot = shown.status === "complete" || shown.status === "partial" ? order : c.slot;
+        if (slot >= 0 && slot < BRIEF_SIZE) {
+          const own = srcRows.filter((s) => s.articleId === c.id);
+          slots[slot] = { ...c, slot, publishedAt: c.publishedAt?.getTime() ?? null, publisher: own[0]?.publisher ?? "", sourceCount: own.length };
         }
       }
     }
