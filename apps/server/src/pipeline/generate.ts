@@ -1,5 +1,5 @@
 import { and, desc, eq, gte, inArray, notInArray, or } from "drizzle-orm";
-import type { BriefFill } from "@dailybrief/shared";
+import type { AgentsSettings, BriefFill } from "@dailybrief/shared";
 import type { FastifyBaseLogger } from "fastify";
 import type { Db } from "../db/index.ts";
 import { leadPublisher } from "../db/sql.ts";
@@ -7,11 +7,13 @@ import { articles, BRIEF_TRIGGERS, briefs, feedItems, feeds, feedTopics, seenUrl
 import type { EventBus } from "../events.ts";
 import { AiError, AiTimeoutError } from "../llm/errors.ts";
 import type { LlmRouter } from "../llm/router.ts";
+import { readAgentSettings } from "../settings.ts";
 import { canonicalUrl, cveIds, preCluster } from "./candidates.ts";
 import { bestDate, formatHint, latestPossible, parseLooseDate, type DateHint } from "./dates.ts";
 import { extractArticle } from "./extract.ts";
 import { pollFeeds } from "./feeds.ts";
 import { applyFeedPicks } from "./feed-suggest.ts";
+import { balancedEvidence, deepShortlist, deepSummaries } from "./research-depth.ts";
 import { mapLimit } from "./util.ts";
 import {
   type ArticleDraft,
@@ -45,6 +47,7 @@ const FETCH_CONCURRENCY = 8;
 const WRITE_CONCURRENCY = 3;
 const SOURCES_PER_ARTICLE = 4;
 const SOURCE_CHARS = 6_000;
+const WRITER_TOKENS: Record<AgentsSettings["writer"], number> = { concise: 3_600, standard: 6_000, detailed: 9_000 };
 const EDITOR_SHORTLIST = 30;
 const RECENT_STORY_DAYS = 14;
 /** Ignored stories are remembered much longer and never resurface, even with new developments. */
@@ -56,6 +59,7 @@ const PREFERENCE_SAMPLE = 25;
 export type Trigger = (typeof BRIEF_TRIGGERS)[number];
 export type PipelineDeps = { db: Db; llm: LlmRouter; events: EventBus; log: FastifyBaseLogger; search: SearchFn };
 export type GenerateOptions = { maxArticles?: number };
+type PipelineContext = { briefId: number; signal: AbortSignal; agents: AgentsSettings };
 
 type Candidate = {
   id: number;
@@ -92,7 +96,7 @@ export async function generateBrief(deps: PipelineDeps, topicId: number, trigger
   const brief = db.insert(briefs).values({ topicId, briefDate, trigger, status: "gathering", detail: "Planning searches…" }).returning().get();
   // A timed-out AI call ends the whole brief: `stop` cancels the calls still running and no new ones start.
   const stop = new AbortController();
-  const ctx = { briefId: brief.id, signal: stop.signal };
+  const ctx: PipelineContext = { briefId: brief.id, signal: stop.signal, agents: readAgentSettings(db) };
   const halted: { by: AiTimeoutError | null } = { by: null };
   const halt = (e: AiTimeoutError) => {
     halted.by ??= e;
@@ -312,7 +316,7 @@ async function gather(deps: PipelineDeps, topicId: number, queries: string[], wi
   return [...fromRss, ...fromSearch].flatMap((r) => (r.status === "fulfilled" && r.value ? [{ ...r.value, id: nextId++ }] : []));
 }
 
-async function clusterStories(deps: PipelineDeps, topic: typeof topics.$inferSelect, pool: Candidate[], ctx: { briefId: number }, prefs: Preferences): Promise<Story[]> {
+async function clusterStories(deps: PipelineDeps, topic: typeof topics.$inferSelect, pool: Candidate[], ctx: PipelineContext, prefs: Preferences): Promise<Story[]> {
   const { db, llm } = deps;
   const groups = preCluster(pool);
   // Recently covered stories (any state) plus anything the reader ignored over a longer horizon.
@@ -327,12 +331,20 @@ async function clusterStories(deps: PipelineDeps, topic: typeof topics.$inferSel
     )
     .all();
   const ignored = new Set(recent.filter((r) => r.state === "ignored").map((r) => r.id));
+  const evidence = ctx.agents.researcher === "quick" ? null : new Map(pool.map((source) => [source.id, balancedEvidence(source, topic)]));
+  if (ctx.agents.researcher === "deep" && evidence) {
+    const summaries = await deepSummaries(deepShortlist(pool, evidence), topic, llm, ctx, deps.log);
+    for (const [id, summary] of summaries) {
+      const item = evidence.get(id);
+      if (item) item.extract += `\n[Researcher summary of selected excerpts, not full source] ${summary}`;
+    }
+  }
   const out = await llm.call(
     "researcher",
     {
       ...clusterPrompt(
         topic,
-        pool.map((c, i) => ({ id: c.id, group: groups[i] ?? i, title: c.title, url: c.url, date: formatHint(c.published), extract: c.text.slice(0, 300) })),
+        pool.map((c, i) => ({ id: c.id, group: groups[i] ?? i, title: c.title, url: c.url, date: formatHint(c.published), extract: evidence?.get(c.id)?.extract ?? c.text.slice(0, 300) })),
         recent,
         prefs,
         localDate(),
@@ -415,7 +427,7 @@ function validateDraft(draft: ArticleDraft, ids: Set<number>): string | null {
   return null;
 }
 
-async function writeStory(deps: PipelineDeps, topic: typeof topics.$inferSelect, story: Story, ctx: { briefId: number }, feedback?: string): Promise<ArticleDraft & { used: Candidate[] }> {
+async function writeStory(deps: PipelineDeps, topic: typeof topics.$inferSelect, story: Story, ctx: PipelineContext, feedback?: string): Promise<ArticleDraft & { used: Candidate[] }> {
   const srcs = pickSources(story);
   const ids = new Set(srcs.map((_, i) => i + 1));
   let fix = feedback;
@@ -425,11 +437,11 @@ async function writeStory(deps: PipelineDeps, topic: typeof topics.$inferSelect,
       draft = await deps.llm.call(
         "writer",
         {
-          ...writerPrompt(topic, story.canonical, srcs.map((s, i) => ({ id: i + 1, title: s.title, publisher: s.publisher, date: formatHint(s.published), text: s.text.slice(0, SOURCE_CHARS) })), localDate(), fix),
+          ...writerPrompt(topic, story.canonical, srcs.map((s, i) => ({ id: i + 1, title: s.title, publisher: s.publisher, date: formatHint(s.published), text: s.text.slice(0, SOURCE_CHARS) })), localDate(), fix, ctx.agents.writer),
           toolName: "submit_article",
           toolDescription: "Submit the finished article",
           schema: articleSchema,
-          maxTokens: 6_000,
+          maxTokens: WRITER_TOKENS[ctx.agents.writer],
         },
         ctx,
       );
@@ -490,7 +502,7 @@ function persistArticle(db: Db, a: { briefId: number; topic: typeof topics.$infe
   });
 }
 
-async function reviewAndRevise(deps: PipelineDeps, topic: typeof topics.$inferSelect, cards: Card[], ctx: { briefId: number }, removeDuplicate: (card: Card) => Promise<void>): Promise<void> {
+async function reviewAndRevise(deps: PipelineDeps, topic: typeof topics.$inferSelect, cards: Card[], ctx: PipelineContext, removeDuplicate: (card: Card) => Promise<void>): Promise<void> {
   const { db, llm, events } = deps;
   const review = await llm.call("editor", { ...reviewPrompt(cards), toolName: "submit_review", toolDescription: "Submit requested revisions", schema: reviewSchema }, ctx);
   const bySlot = new Map(cards.map((c) => [c.slot, c]));

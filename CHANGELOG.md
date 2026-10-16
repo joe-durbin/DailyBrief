@@ -2,6 +2,12 @@
 
 All notable changes to DailyBrief. Versions follow [Semantic Versioning](https://semver.org/); the version shown in the app and the manual comes from the root `package.json`.
 
+## 1.0.0-beta.8 — 2026-10-16
+
+### Added
+- **Agents settings:** a new tab after AI explains Researcher, Editor, Writer and Chat. Researcher depth can be Quick (opening excerpt), Balanced (relevant passages throughout each source), or Deep (bounded summaries of substantial sources with up to three extra AI calls per research pass). Writer article length and Chat answer length can be adjusted independently. Editor has no behaviour control.
+- Agent choices save automatically. Brief choices apply to the next generation; chat choices apply to the next answer.
+
 ## 1.0.0-beta.7 — 2026-10-16
 
 ### Fixed

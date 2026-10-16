@@ -2,7 +2,7 @@
 
 A self-hosted daily news brief. You describe the topics you follow; every morning DailyBrief researches each one and gives you up to 15 deduplicated stories as a grid of cards, each a short article with its sources. Open one to read it, chat with the AI about it, then save or ignore it. A two-pane RSS reader, saved articles, chats and a dashboard sit alongside. Runs in Docker on your home network; use it from any modern browser, on a computer or a tablet.
 
-**Status:** beta (1.0.0-beta.7) — see [CHANGELOG.md](CHANGELOG.md). The full user manual is built into the app (the **?** button) and is [README.html](README.html) in this repository.
+**Status:** beta (1.0.0-beta.8) — see [CHANGELOG.md](CHANGELOG.md). The full user manual is built into the app (the **?** button) and is [README.html](README.html) in this repository.
 
 ## Requirements
 
@@ -43,6 +43,7 @@ Choose **OpenAI-compatible** and use `http://host.docker.internal:4000/v1` as th
 | Daily brief | Maximum coverage (always aim for 15 stories) or Highlights only |
 | Appearance | Theme: DailyBrief, Catppuccin Mocha / Latte, Dracula, Nord Snow Storm |
 | AI | Default model, per-step models (Researcher / Editor / Writer / Chat), providers, and automatically looked-up per-model prices (editable). There is no automatic backup model: if a provider fails, the brief or chat says why |
+| Agents | Researcher source-reading depth (Quick, Balanced or Deep), Writer article length, Chat answer length; Editor is described but has no behaviour control |
 | Search | SearXNG (built in, no key), Brave, Tavily or Exa |
 | Schedule | Brief time and timezone, RSS check interval, Run all now |
 | RSS | Days without a post before a feed is flagged as quiet |

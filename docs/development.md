@@ -35,12 +35,13 @@ Deploy the local checkout: `docker compose up -d --build`.
 
 The single source of the version is the root `package.json` `version` ([SemVer](https://semver.org/); pre-releases `1.0.0-beta.N`). The manual's two `<span data-version>` elements must match — the web build fails otherwise.
 
-To release:
+To publish a beta snapshot:
 
 1. Bump `package.json` (`npm version --no-git-tag-version <version>`) and both `data-version` spans in `README.html`.
 2. Add a section to `CHANGELOG.md`.
-3. Typecheck, test, build; commit as `Release <version>`.
-4. Tag: `git tag -a v<version> -m "DailyBrief <version>"`.
+3. Typecheck, test and build, then commit the changes on `dev`.
+4. Build a snapshot commit on `main` from the committed `dev` files, excluding `.release-exclude`. Use the previous `main` commit as its only parent. Never merge or rebase `dev` into `main`, because that would publish the development history.
+5. Audit all files and history reachable from `main`, tag the snapshot `v<version>`, and push only `main` and that tag. Never use `git push --all` or `git push --tags`.
 
 ## Data
 

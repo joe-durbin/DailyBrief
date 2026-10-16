@@ -1,3 +1,5 @@
+import { DEFAULT_AGENTS_SETTINGS } from "@dailybrief/shared";
+import Fastify from "fastify";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -12,6 +14,7 @@ import { refreshPrices } from "../src/pipeline/prices.ts";
 import { makeSecretBox } from "../src/crypto.ts";
 import { loadConfig } from "../src/config.ts";
 import { AiError, AiTimeoutError, toAiError } from "../src/llm/errors.ts";
+import { registerChatRoutes } from "../src/chat-routes.ts";
 import { createEventBus } from "../src/events.ts";
 import type { LlmRouter } from "../src/llm/router.ts";
 import { generateBrief, localDate } from "../src/pipeline/generate.ts";
@@ -261,11 +264,13 @@ describe("brief writer recovery", () => {
     db.insert(feedTopics).values({ feedId: feed.id, topicId: topic.id }).run();
     db.insert(feedItems).values({ feedId: feed.id, guid: "one", url: "https://example.com/story", title: "A significant security release", publishedAt: new Date(), contentText: "The release fixes a serious security flaw. ".repeat(20) }).run();
     const calls: string[] = [];
+    const writerRequests: { maxTokens?: number; system: string }[] = [];
     let rejectWriter = false;
     let alwaysMalformed = false;
     const llm: LlmRouter = {
       async call(_role, req) {
         calls.push(req.toolName);
+        if (req.toolName === "submit_article") writerRequests.push({ maxTokens: req.maxTokens, system: req.system });
         if (req.toolName === "submit_queries") return { queries: ["security release details"] } as never;
         if (req.toolName === "submit_stories") {
           return { clusters: [{ candidateIds: [1], canonical: "A significant security release fixes a flaw", entities: [], relevance: 5, significance: 5, substance: 5, sourceQuality: 5, freshness: 5, preferenceFit: 2.5, eventDate: localDate(), exclude: null, recentMatch: null, materiallyNew: false }] } as never;
@@ -282,26 +287,84 @@ describe("brief writer recovery", () => {
       },
       chat() { throw new Error("Chat not expected"); },
     };
+    await app.inject({ method: "PUT", url: "/api/settings", headers: { cookie }, payload: { agents: { ...DEFAULT_AGENTS_SETTINGS, writer: "concise" } } });
     const briefId = await generateBrief({ db, llm, events: createEventBus(), log: app.log, search: async () => [] }, topic.id, "scheduled", { maxArticles: 1 });
     assert.equal(db.select().from(briefs).where(eq(briefs.id, briefId)).get()?.status, "complete");
     assert.equal(db.select().from(articles).where(eq(articles.briefId, briefId)).all().length, 1);
     assert.deepEqual(calls, ["submit_queries", "submit_stories", "submit_selection", "submit_article", "submit_article"]);
+    assert.deepEqual(writerRequests.map((r) => r.maxTokens), [3_600, 3_600]);
+    assert.match(writerRequests[0]!.system, /250–450/);
     const blockedTopic = db.insert(topics).values({ name: "Quota test", description: "Follow software security releases", accent: "#7C8CFF" }).returning().get();
     db.insert(feedTopics).values({ feedId: feed.id, topicId: blockedTopic.id }).run();
     rejectWriter = true;
     calls.length = 0;
+    await app.inject({ method: "PUT", url: "/api/settings", headers: { cookie }, payload: { agents: { ...DEFAULT_AGENTS_SETTINGS, writer: "detailed" } } });
     const blockedId = await generateBrief({ db, llm, events: createEventBus(), log: app.log, search: async () => [] }, blockedTopic.id, "scheduled", { maxArticles: 1 });
     assert.equal(db.select().from(briefs).where(eq(briefs.id, blockedId)).get()?.status, "failed");
     assert.deepEqual(calls, ["submit_queries", "submit_stories", "submit_selection", "submit_article"], "a quota failure does not trigger another paid call");
+    assert.equal(writerRequests.at(-1)?.maxTokens, 9_000);
+    assert.match(writerRequests.at(-1)?.system ?? "", /800–1200/);
     const exhaustedTopic = db.insert(topics).values({ name: "Exhausted retry test", description: "Follow software security releases", accent: "#7C8CFF" }).returning().get();
     db.insert(feedTopics).values({ feedId: feed.id, topicId: exhaustedTopic.id }).run();
     rejectWriter = false;
     alwaysMalformed = true;
     calls.length = 0;
+    await app.inject({ method: "PUT", url: "/api/settings", headers: { cookie }, payload: { agents: DEFAULT_AGENTS_SETTINGS } });
     const exhaustedId = await generateBrief({ db, llm, events: createEventBus(), log: app.log, search: async () => [] }, exhaustedTopic.id, "scheduled", { maxArticles: 1 });
     const exhausted = db.select().from(briefs).where(eq(briefs.id, exhaustedId)).get();
     assert.equal(exhausted?.status, "failed");
     assert.match(exhausted?.error ?? "", /Incomplete submit_article output/);
     assert.deepEqual(calls, ["submit_queries", "submit_stories", "submit_selection", "submit_article", "submit_article"], "malformed output gets only one retry");
+    assert.deepEqual(writerRequests.slice(-2).map((r) => r.maxTokens), [6_000, 6_000]);
+  });
+});
+
+describe("agent behaviour settings", () => {
+  it("persists complete choices and rejects partial or unknown controls without changing them", async () => {
+    const get = async () => (await app.inject({ url: "/api/settings", headers: { cookie } })).json().agents;
+    assert.deepEqual(await get(), DEFAULT_AGENTS_SETTINGS);
+    const choices = { researcher: "deep", writer: "concise", chat: "detailed" };
+    const saved = await app.inject({ method: "PUT", url: "/api/settings", headers: { cookie }, payload: { agents: choices } });
+    assert.equal(saved.statusCode, 200);
+    assert.deepEqual(await get(), choices);
+    for (const invalid of [{ researcher: "quick" }, { ...choices, writer: "custom" }]) {
+      const res = await app.inject({ method: "PUT", url: "/api/settings", headers: { cookie }, payload: { agents: invalid } });
+      assert.equal(res.statusCode, 400);
+      assert.deepEqual(await get(), choices);
+    }
+    await app.inject({ method: "PUT", url: "/api/settings", headers: { cookie }, payload: { agents: DEFAULT_AGENTS_SETTINGS } });
+  });
+});
+
+describe("chat answer length", () => {
+  it("bounds model output according to the saved mode without extra calls", async () => {
+    const topic = db.insert(topics).values({ name: "Answer depth", description: "An example topic", accent: "#7C8CFF" }).returning().get();
+    const brief = db.insert(briefs).values({ topicId: topic.id, briefDate: localDate(), trigger: "manual", status: "complete" }).returning().get();
+    const article = db.insert(articles).values({ briefId: brief.id, topicId: topic.id, topicName: topic.name, slot: 0, headline: "An example story", summary: "Example summary", bodyMd: "Example body", storyKey: "An example story", entities: [] }).returning().get();
+    const requests: { maxTokens?: number; system: string }[] = [];
+    const llm: LlmRouter = {
+      call() { throw new Error("Only chat expected"); },
+      chat(_role, req) {
+        requests.push({ maxTokens: req.maxTokens, system: req.system });
+        return { providerId: 1, model: "fake", deltas: { async *[Symbol.asyncIterator]() { yield "Answer."; } } };
+      },
+    };
+    const chatApp = Fastify();
+    registerChatRoutes(chatApp, db, llm, async () => []);
+    try {
+      for (const mode of ["brief", "standard", "detailed"] as const) {
+        await app.inject({ method: "PUT", url: "/api/settings", headers: { cookie }, payload: { agents: { ...DEFAULT_AGENTS_SETTINGS, chat: mode } } });
+        const res = await chatApp.inject({ method: "POST", url: `/api/articles/${article.id}/chat`, payload: { message: "What happened?" } });
+        assert.equal(res.statusCode, 200);
+        assert.match(res.body, /"type":"done"/);
+      }
+      assert.deepEqual(requests.map((r) => r.maxTokens), [800, 2_000, 3_500]);
+      assert.match(requests[0]!.system, /Answer briefly/);
+      assert.doesNotMatch(requests[1]!.system, /Answer briefly|fuller answer/);
+      assert.match(requests[2]!.system, /fuller answer/);
+    } finally {
+      await app.inject({ method: "PUT", url: "/api/settings", headers: { cookie }, payload: { agents: DEFAULT_AGENTS_SETTINGS } });
+      await chatApp.close();
+    }
   });
 });

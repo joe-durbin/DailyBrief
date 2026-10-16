@@ -30,12 +30,13 @@ searxng/         SearXNG settings (JSON API on, image proxy and limiter off)
 1. **Finding feeds** (only when the topic was saved with background *Let AI pick*) — `feed-suggest.ts` links suitable existing feeds and adds new ones.
 2. **Planning searches** — the *researcher* model writes search queries from the topic description and learned preferences (ratings).
 3. **Gathering** — SearXNG results plus the topic's RSS items, first for the last 3 days, widened to 7 if too few stories; pages are fetched and reduced to readable text (`extract.ts`) and dated from page metadata, structured data or the URL (`dates.ts`; a day beats a month, anything provably older than the window is dropped), deduplicated by canonical URL and pre-clustered lexically (`candidates.ts`).
-4. **Clustering and scoring** — the *researcher* groups sources into stories and scores them (relevance, significance, substance, source quality, freshness, preference fit), and dates each story (`eventDate`, an educated guess when no source is dated). Stories older than 7 days are dropped; a story is never treated as fresher than its newest dated source. Stories seen in the last 14 days or ignored in the last 90 are dropped too.
+4. **Clustering and scoring** — the *researcher* groups sources into stories and scores them (relevance, significance, substance, source quality, freshness, preference fit), and dates each story (`eventDate`, an educated guess when no source is dated). Settings → Agents controls source evidence: Quick uses the first 300 characters; Balanced adds relevant passages from anywhere in each source without extra AI calls; Deep also summarises up to 12 substantial sources in batches of four, at most three extra calls per clustering pass (`research-depth.ts`). Stories older than 7 days are dropped; a story is never treated as fresher than its newest dated source. Stories seen in the last 14 days or ignored in the last 90 are dropped too.
 5. **Selection** — the *editor* picks up to 15 from a shortlist, seeing each story's date (*Maximum coverage* tops up from the next-best; *Highlights only* may leave gaps).
-6. **Writing** — the *writer* writes each article (three at a time) with citations validated against its sources.
+6. **Writing** — the *writer* writes each article (three at a time) with citations validated against its sources; Settings → Agents changes the requested article length and output-token budget.
 7. **Final review** — the *editor* checks the set; duplicates and weak cards are rewritten or replaced by spares.
 
 Progress is pushed to the browser over SSE. `themes.ts` writes the dashboard's themes of the day; `prices.ts` looks up per-model prices (provider, LiteLLM's public list, then OpenRouter; manual prices win).
+Chat answers read their length setting per question and use a matching instruction and output-token budget. A brief snapshots agent settings at its start so changes take effect on the next generation.
 
 ## Web (`apps/web/src`)
 

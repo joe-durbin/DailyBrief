@@ -1,4 +1,4 @@
-import { DEFAULT_RSS_SETTINGS, modelChoiceSchema, roleChoicesSchema, rssSettingsSchema, scheduleSchema, SEARCH_PROVIDERS, type AppSettings, type RssSettings, type Schedule, type SearchProvider } from "@dailybrief/shared";
+import { agentsSettingsSchema, DEFAULT_AGENTS_SETTINGS, DEFAULT_RSS_SETTINGS, modelChoiceSchema, roleChoicesSchema, rssSettingsSchema, scheduleSchema, SEARCH_PROVIDERS, type AgentsSettings, type AppSettings, type RssSettings, type Schedule, type SearchProvider } from "@dailybrief/shared";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import type { SecretBox } from "./crypto.ts";
@@ -25,6 +25,9 @@ export function readSchedule(db: Db): Schedule {
 export function readRssSettings(db: Db): RssSettings {
   return rssSettingsSchema.safeParse(readSetting(db, "rss")).data ?? DEFAULT_RSS_SETTINGS;
 }
+export function readAgentSettings(db: Db): AgentsSettings {
+  return agentsSettingsSchema.safeParse(readSetting(db, "agents")).data ?? DEFAULT_AGENTS_SETTINGS;
+}
 
 /** Search provider and its decrypted API key (SearXNG needs none). */
 export function readSearch(db: Db, box: SecretBox): { provider: SearchProvider; apiKey: string } {
@@ -40,6 +43,7 @@ export function readAppSettings(db: Db): AppSettings {
       default: modelChoiceSchema.safeParse(readSetting(db, "ai.default")).data ?? null,
       roles: roleChoicesSchema.safeParse(readSetting(db, "ai.roles") ?? {}).data ?? {},
     },
+    agents: readAgentSettings(db),
     search: { provider: search?.provider ?? "searxng", hasKey: !!search?.keyEnc },
     schedule: readSchedule(db),
     rss: readRssSettings(db),

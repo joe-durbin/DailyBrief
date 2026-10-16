@@ -25,7 +25,7 @@ export function registerRoutes(app: FastifyInstance, db: Db, box: SecretBox, que
   app.put("/api/settings", async (req, reply): Promise<AppSettings | undefined> => {
     const patch = settingsPatchSchema.safeParse(req.body);
     if (!patch.success) return reply.code(400).send({ error: patch.error.issues[0]?.message ?? "Invalid settings" });
-    const { briefFill, ai, search, schedule, rss, onboarded } = patch.data;
+    const { briefFill, ai, agents, search, schedule, rss, onboarded } = patch.data;
     if (schedule && !Intl.supportedValuesOf("timeZone").includes(schedule.timezone)) return reply.code(400).send({ error: "Unknown timezone" });
     for (const choice of [ai?.default, ...Object.values(ai?.roles ?? {})]) {
       if (choice && !db.select({ id: providers.id }).from(providers).where(eq(providers.id, choice.providerId)).get()) {
@@ -35,6 +35,7 @@ export function registerRoutes(app: FastifyInstance, db: Db, box: SecretBox, que
     if (briefFill) writeSetting(db, "brief.fill", briefFill);
     if (ai?.default) writeSetting(db, "ai.default", ai.default);
     if (ai?.roles) writeSetting(db, "ai.roles", ai.roles);
+    if (agents) writeSetting(db, "agents", agents);
     if (search) writeSearch(db, box, search);
     if (rss) writeSetting(db, "rss", rss);
     if (onboarded) writeSetting(db, "onboarding.done", true);

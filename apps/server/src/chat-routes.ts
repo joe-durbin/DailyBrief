@@ -9,6 +9,7 @@ import type { LlmRouter } from "./llm/router.ts";
 import { canonicalUrl } from "./pipeline/candidates.ts";
 import { extractArticle } from "./pipeline/extract.ts";
 import type { SearchFn } from "./pipeline/search.ts";
+import { readAgentSettings } from "./settings.ts";
 
 const idParams = z.object({ id: z.coerce.number().int().positive() });
 type Subject = "article" | "feed_item";
@@ -132,6 +133,13 @@ export function registerChatRoutes(app: FastifyInstance, db: Db, llm: LlmRouter,
       const ctx = context(subject, id);
       if (!ctx) return reply.code(404).send({ error: "Article not found" });
 
+      const chatMode = readAgentSettings(db).chat;
+      const lengthInstruction = chatMode === "brief"
+        ? "Answer briefly: usually a few sentences or short bullets. Address the question directly without dropping essential context or citations."
+        : chatMode === "detailed"
+          ? "Give a fuller answer when the question calls for it: explain relevant context and nuance, while staying focused, grounded and properly cited."
+          : "";
+      const maxTokens = chatMode === "brief" ? 800 : chatMode === "detailed" ? 3_500 : 2_000;
       const prior = history(subject, id).slice(-HISTORY_TURNS);
       // Chatting keeps the article: it leaves the brief grid / becomes permanent, and lives in Chats.
       db.transaction((tx) => {
@@ -160,8 +168,9 @@ export function registerChatRoutes(app: FastifyInstance, db: Db, llm: LlmRouter,
         const stream = llm.chat(
           "chat",
           {
-            system: `${SYSTEM}\n\n${ctx.material}${web?.block ? `\n\n${web.block}` : ""}`,
+            system: `${SYSTEM}${lengthInstruction ? `\n${lengthInstruction}` : ""}\n\n${ctx.material}${web?.block ? `\n\n${web.block}` : ""}`,
             messages: [...prior.map((m) => ({ role: m.role, content: m.content })), { role: "user", content: body.data.message }],
+            maxTokens,
             signal: abort.signal,
           },
           subject === "article" ? { articleId: id } : { feedItemId: id },

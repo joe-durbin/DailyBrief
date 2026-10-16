@@ -181,6 +181,14 @@ export type AiRole = (typeof AI_ROLES)[number];
 export const modelChoiceSchema = z.object({ providerId: z.number().int(), model: z.string().min(1) });
 export type ModelChoice = z.infer<typeof modelChoiceSchema>;
 export const roleChoicesSchema = z.partialRecord(z.enum(AI_ROLES), modelChoiceSchema);
+/** Behaviour settings for the AI roles; model selection remains in Settings → AI. */
+export const agentsSettingsSchema = z.object({
+  researcher: z.enum(["quick", "balanced", "deep"]),
+  writer: z.enum(["concise", "standard", "detailed"]),
+  chat: z.enum(["brief", "standard", "detailed"]),
+});
+export type AgentsSettings = z.infer<typeof agentsSettingsSchema>;
+export const DEFAULT_AGENTS_SETTINGS: AgentsSettings = { researcher: "balanced", writer: "standard", chat: "standard" };
 
 export const SEARCH_PROVIDERS = ["searxng", "brave", "tavily", "exa"] as const;
 export type SearchProvider = (typeof SEARCH_PROVIDERS)[number];
@@ -202,6 +210,7 @@ export type Schedule = z.infer<typeof scheduleSchema>;
 export type AppSettings = {
   briefFill: BriefFill;
   ai: { default: ModelChoice | null; roles: Partial<Record<AiRole, ModelChoice>> };
+  agents: AgentsSettings;
   search: { provider: SearchProvider; hasKey: boolean };
   schedule: Schedule;
   rss: RssSettings;
@@ -213,6 +222,7 @@ export const settingsPatchSchema = z
   .object({
     briefFill: z.enum(BRIEF_FILL_MODES),
     ai: z.object({ default: modelChoiceSchema, roles: roleChoicesSchema }).partial(),
+    agents: agentsSettingsSchema,
     /** apiKey: omitted = keep the stored key; "" = remove it. */
     search: z.object({ provider: z.enum(SEARCH_PROVIDERS), apiKey: z.string().max(500).optional() }),
     schedule: scheduleSchema,

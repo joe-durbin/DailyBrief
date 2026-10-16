@@ -7,6 +7,9 @@ import { isBlockedAddress, safeFetch } from "../src/net/safe-fetch.ts";
 import { feedBody, isFeedDocument, parseFeed } from "../src/pipeline/feeds.ts";
 import { formatHint, latestPossible, pageDate, urlDate } from "../src/pipeline/dates.ts";
 import { parseHTML } from "linkedom";
+import { AiError } from "../src/llm/errors.ts";
+import type { LlmRouter } from "../src/llm/router.ts";
+import { balancedEvidence, deepEvidence, deepShortlist, deepSummaries } from "../src/pipeline/research-depth.ts";
 
 describe("safeFetch SSRF guard", () => {
   it("classifies internal and public addresses", () => {
@@ -99,5 +102,44 @@ describe("publication dates", () => {
     assert.equal(formatHint(urlDate("https://example.com/2026/09/post")), "2026-09 (month only)");
     assert.equal(urlDate("https://www.bankinfosecurity.com/openai-models-escaped-sandbox-a-32286"), null);
     assert.equal(urlDate("https://example.com/item/2026-13-45-x"), null);
+  });
+});
+
+describe("research depth", () => {
+  const topic = { name: "Orca migration", description: "Follow the movement of orcas between coastal habitats" };
+  const longSource = { id: 1, title: "Coastal observations", text: `An initial sighting. ${"Unrelated coastal bulletin. ".repeat(240)}Orcas migrated 720 kilometres between coastal habitats in April.` };
+
+  it("recovers late relevant evidence without implying the opening excerpt is the whole source", () => {
+    const balanced = balancedEvidence(longSource, topic);
+    assert.match(balanced.extract, /Orcas migrated 720 kilometres/);
+    assert.ok(balanced.extract.length <= 1200);
+    const deep = deepEvidence({ ...longSource, text: `${longSource.text}${" Unrelated bulletin.".repeat(1000)}` }, topic);
+    assert.match(deep, /Orcas migrated 720 kilometres/);
+    assert.ok(deep.length <= 12_000);
+  });
+
+  it("bounds deep model calls to three batches, retaining balanced evidence for a failed batch", async () => {
+    const sources = Array.from({ length: 16 }, (_, index) => ({ id: index + 1, title: "Coastal observations", text: `${"Unrelated bulletin. ".repeat(250)}Orcas migrated near the coast ${index}.` }));
+    const evidence = new Map(sources.map((source) => [source.id, balancedEvidence(source, topic)]));
+    const selected = deepShortlist(sources, evidence);
+    assert.equal(selected.length, 12);
+    const batches: number[][] = [];
+    const llm = {
+      call: async (_role: string, request: { user: string }) => {
+        const ids = [...request.user.matchAll(/<source id="(\d+)"/g)].map((match) => Number(match[1]));
+        batches.push(ids);
+        if (batches.length === 2) throw new Error("Malformed summary");
+        return { summaries: ids.map((id) => ({ id, summary: `Observed orca migration ${id}` })) };
+      },
+    } as unknown as LlmRouter;
+    const summaries = await deepSummaries(selected, topic, llm, { briefId: 1 }, { warn: () => {} } as never);
+    assert.deepEqual(batches.map((batch) => batch.length), [4, 4, 4]);
+    assert.equal(summaries.size, 8);
+    for (const id of batches[1] ?? []) assert.equal(summaries.has(id), false);
+
+    let calls = 0;
+    const quota = { call: async () => { calls++; throw new AiError("Out of tokens / rate limited", "Quota exceeded", "test"); } } as unknown as LlmRouter;
+    await assert.rejects(deepSummaries(selected, topic, quota, { briefId: 1 }, { warn: () => {} } as never), AiError);
+    assert.equal(calls, 1, "a provider quota failure does not start more deep batches");
   });
 });

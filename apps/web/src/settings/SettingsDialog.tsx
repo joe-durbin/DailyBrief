@@ -8,6 +8,7 @@ import { useState } from "react";
 import { api } from "../api.ts";
 import { applyTheme, currentTheme, THEMES, type ThemeId } from "../lib/theme.ts";
 import { AccountTab } from "./AccountTab.tsx";
+import { AgentsTab } from "./AgentsTab.tsx";
 import { AiTab } from "./AiTab.tsx";
 import { DataTab } from "./DataTab.tsx";
 import { RssTab, ScheduleTab, SearchTab } from "./SearchScheduleTabs.tsx";
@@ -22,6 +23,7 @@ const TABS = [
   { id: "brief", label: "Daily brief" },
   { id: "appearance", label: "Appearance" },
   { id: "ai", label: "AI" },
+  { id: "agents", label: "Agents" },
   { id: "search", label: "Search" },
   { id: "schedule", label: "Schedule" },
   { id: "rss", label: "RSS" },
@@ -65,6 +67,9 @@ export function SettingsDialog({ open, onOpenChange, tab: initialTab = "brief" }
               </Tabs.Content>
               <Tabs.Content value="ai">
                 <AiTab />
+              </Tabs.Content>
+              <Tabs.Content value="agents">
+                <AgentsTab />
               </Tabs.Content>
               <Tabs.Content value="search">
                 <SearchTab />
