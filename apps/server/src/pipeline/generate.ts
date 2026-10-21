@@ -44,9 +44,11 @@ const FRESH_DAYS = 7;
 const MAX_RSS_FETCH = 35;
 const MAX_SEARCH_FETCH = 35;
 const FETCH_CONCURRENCY = 8;
-const WRITE_CONCURRENCY = 3;
+const WRITE_CONCURRENCY = 1;
 const SOURCES_PER_ARTICLE = 4;
-const SOURCE_CHARS = 6_000;
+const SOURCE_CHARS = 3_500;
+const CLUSTER_BATCH_SIZE = 18;
+const CLUSTER_EXTRACT_CHARS = 400;
 const WRITER_TOKENS: Record<AgentsSettings["writer"], number> = { concise: 3_600, standard: 6_000, detailed: 9_000 };
 const EDITOR_SHORTLIST = 30;
 const RECENT_STORY_DAYS = 14;
@@ -339,28 +341,40 @@ async function clusterStories(deps: PipelineDeps, topic: typeof topics.$inferSel
       if (item) item.extract += `\n[Researcher summary of selected excerpts, not full source] ${summary}`;
     }
   }
-  const out = await llm.call(
-    "researcher",
-    {
-      ...clusterPrompt(
-        topic,
-        pool.map((c, i) => ({ id: c.id, group: groups[i] ?? i, title: c.title, url: c.url, date: formatHint(c.published), extract: evidence?.get(c.id)?.extract ?? c.text.slice(0, 300) })),
-        recent,
-        prefs,
-        localDate(),
-      ),
-      toolName: "submit_stories",
-      toolDescription: "Submit the clustered and scored stories",
-      schema: clusterSchema,
-      maxTokens: 16_000,
-    },
-    ctx,
-  );
+  const allClusters: Cluster[] = [];
+  for (let offset = 0; offset < pool.length; offset += CLUSTER_BATCH_SIZE) {
+    const slice = pool.slice(offset, offset + CLUSTER_BATCH_SIZE);
+    const out = await llm.call(
+      "researcher",
+      {
+        ...clusterPrompt(
+          topic,
+          slice.map((c, i) => ({
+            id: c.id,
+            group: groups[offset + i] ?? offset + i,
+            title: c.title,
+            url: c.url,
+            date: formatHint(c.published),
+            extract: (evidence?.get(c.id)?.extract ?? c.text).slice(0, CLUSTER_EXTRACT_CHARS),
+          })),
+          recent,
+          prefs,
+          localDate(),
+        ),
+        toolName: "submit_stories",
+        toolDescription: "Submit the clustered and scored stories",
+        schema: clusterSchema,
+        maxTokens: 6_000,
+      },
+      ctx,
+    );
+    allClusters.push(...out.clusters);
+  }
   const byId = new Map(pool.map((c) => [c.id, c]));
   const used = new Set<number>();
   const weightSum = Object.values(WEIGHTS).reduce((a, b) => a + b, 0);
   const stale: string[] = [];
-  const stories = out.clusters
+  const stories = allClusters
     .flatMap((cl, i): Story[] => {
       const members = cl.candidateIds.filter((id) => !used.has(id) && byId.has(id)).flatMap((id) => byId.get(id) ?? []);
       members.forEach((m) => used.add(m.id));
@@ -374,7 +388,7 @@ async function clusterStories(deps: PipelineDeps, topic: typeof topics.$inferSel
         return [];
       }
       const score = (Object.keys(WEIGHTS) as (keyof typeof WEIGHTS)[]).reduce((s, k) => s + cl[k] * WEIGHTS[k], 0) / weightSum;
-      return [{ ...cl, id: i + 1, score, members, date }];
+      return [{ ...cl, entities: cl.entities.slice(0, 8), id: i + 1, score, members, date }];
     })
     .sort((a, b) => b.score - a.score);
   if (stale.length) deps.log.info({ briefId: ctx.briefId, dropped: stale }, "story dates checked");

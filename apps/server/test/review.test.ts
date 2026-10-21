@@ -255,6 +255,53 @@ describe("structured AI output", () => {
       server.close();
     }
   });
+
+  it("sends string tool_choice 'required' and normalises local-LLM tool argument quirks", async () => {
+    let capturedToolChoice: unknown = null;
+    const server = createServer(async (req, res) => {
+      const chunks: Buffer[] = [];
+      for await (const ch of req) chunks.push(ch as Buffer);
+      const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as { tool_choice?: unknown };
+      capturedToolChoice = body.tool_choice;
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      const send = (o: unknown) => res.write(`data: ${JSON.stringify(o)}\n\n`);
+      const args = JSON.stringify({
+        queries: [{ query: "aws iam escalation" }, { text: "llm prompt injection" }],
+        recentMatch: "R12",
+        exclude: "none",
+      });
+      send({ id: "c", object: "chat.completion.chunk", created: 0, model: "m", choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: "t", type: "function", function: { name: "submit", arguments: args } }] }, finish_reason: null }] });
+      send({ id: "c", object: "chat.completion.chunk", created: 0, model: "m", choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }] });
+      send({ id: "c", object: "chat.completion.chunk", created: 0, model: "m", choices: [], usage: { prompt_tokens: 10, completion_tokens: 5 } });
+      res.end("data: [DONE]\n\n");
+    });
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const address = server.address();
+    const port = typeof address === "object" && address ? address.port : 0;
+    const p = db.insert(providers).values({ name: "Quirks test", kind: "openai_compatible", baseUrl: `http://127.0.0.1:${port}/v1` }).returning().get();
+    db.insert(settings).values({ key: "ai.roles", value: { researcher: { providerId: p.id, model: "m" } } }).onConflictDoUpdate({ target: settings.key, set: { value: { researcher: { providerId: p.id, model: "m" } } } }).run();
+    const llm = createLlmRouter(db, makeSecretBox("x".repeat(40)));
+    const schema = z.object({
+      queries: z.array(z.string()).max(1),
+      recentMatch: z.number().int().nullable(),
+      exclude: z.string().nullable(),
+      materiallyNew: z.boolean(),
+    });
+    try {
+      const out = await llm.call("researcher", { system: "s", user: "u", toolName: "submit", toolDescription: "d", schema });
+      assert.equal(capturedToolChoice, "required");
+      assert.deepEqual(out, {
+        queries: ["aws iam escalation"],
+        recentMatch: 12,
+        exclude: null,
+        materiallyNew: false,
+      });
+    } finally {
+      server.closeAllConnections();
+      server.close();
+    }
+  });
 });
 
 describe("brief writer recovery", () => {
