@@ -83,7 +83,9 @@ export function createProvider({ kind, baseUrl, apiKey }: ProviderConfig): LlmPr
     },
 
     // Streamed, so a long answer that is still arriving can be told apart from a stalled request.
-    async structured(req) {
+    async structured(input) {
+      // Scraped pages can contain lone UTF-16 surrogates, which some upstreams reject as invalid UTF-8.
+      const req = { ...input, system: input.system.toWellFormed(), user: input.user.toWellFormed() };
       if (isAnthropic()) {
         const stream = anthropic.messages.stream(
           {
@@ -142,7 +144,8 @@ export function createProvider({ kind, baseUrl, apiKey }: ProviderConfig): LlmPr
       }
     },
 
-    chat(req) {
+    chat(input) {
+      const req = { ...input, system: input.system.toWellFormed(), messages: input.messages.map((m) => ({ ...m, content: m.content.toWellFormed() })) };
       const usage = Promise.withResolvers<{ inputTokens: number; outputTokens: number }>();
       async function* anthropicDeltas() {
         const stream = anthropic.messages.stream({ model: req.model, max_tokens: req.maxTokens ?? 2_000, system: req.system, messages: req.messages }, { signal: req.signal });

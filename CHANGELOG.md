@@ -8,6 +8,7 @@ All notable changes to DailyBrief. Versions follow [Semantic Versioning](https:/
 - OpenAI-compatible local models can request structured tools using the standard `required` choice, with common output quirks normalised before validation.
 - Smaller clustering calls retain relevant source passages and reconcile duplicate events across batches before the editor chooses stories.
 - Invalid model-generated dates still fail validation rather than silently becoming undated articles.
+- Briefs and chats no longer fail when a fetched page contains a malformed character. Such characters are replaced before the request is sent to the AI provider, so the affected story is written instead of the whole brief failing.
 
 ## 1.0.0-beta.8 — 2026-10-16
 
