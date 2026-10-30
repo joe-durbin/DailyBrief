@@ -67,12 +67,9 @@ export function normalizeToolOutput(val: unknown, schema: SchemaNode): unknown {
     if (nonNull) {
       const coerced = normalizeToolOutput(val, nonNull);
       if (nullable && nonNull.type === "string" && typeof nonNull.pattern === "string" && typeof coerced === "string") {
-        const isoMatch = coerced.match(/^(\d{4}-\d{2}-\d{2})/);
-        if (isoMatch) return isoMatch[1];
-        if (!new RegExp(nonNull.pattern).test(coerced)) return null;
-      }
-      if (nullable && (nonNull.type === "integer" || nonNull.type === "number") && typeof coerced !== "number") {
-        return null;
+        const pattern = new RegExp(nonNull.pattern);
+        const isoMatch = coerced.match(/^(\d{4}-\d{2}-\d{2})T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/);
+        if (isoMatch && pattern.test(isoMatch[1]!)) return isoMatch[1];
       }
       return coerced;
     }
@@ -80,7 +77,7 @@ export function normalizeToolOutput(val: unknown, schema: SchemaNode): unknown {
 
   const type = schema.type;
   if (type === "string" && typeof schema.pattern === "string" && typeof val === "string") {
-    const isoMatch = val.match(/^(\d{4}-\d{2}-\d{2})/);
+    const isoMatch = val.match(/^(\d{4}-\d{2}-\d{2})T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/);
     if (isoMatch && new RegExp(schema.pattern).test(isoMatch[1]!)) return isoMatch[1];
   }
 
@@ -147,9 +144,12 @@ export function normalizeToolOutput(val: unknown, schema: SchemaNode): unknown {
       if (/^-?\d+(\.\d+)?$/.test(cleaned)) num = Number(cleaned);
     }
     if (typeof num === "number" && Number.isFinite(num)) {
-      if (type === "integer") num = Math.round(num);
-      if (typeof schema.minimum === "number" && num < schema.minimum) num = schema.minimum;
-      if (typeof schema.maximum === "number" && num > schema.maximum) num = schema.maximum;
+      let value: number = type === "integer" ? Math.round(num) : num;
+      const minimum = schema.minimum;
+      const maximum = schema.maximum;
+      if (typeof minimum === "number" && value < minimum) value = minimum;
+      if (typeof maximum === "number" && value > maximum) value = maximum;
+      return value;
     }
     return num;
   }
