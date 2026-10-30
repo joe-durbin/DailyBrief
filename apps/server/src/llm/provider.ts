@@ -105,13 +105,13 @@ export function createProvider({ kind, baseUrl, apiKey }: ProviderConfig): LlmPr
       const stream = await openai.chat.completions.create(
         {
           model: req.model,
-          max_completion_tokens: req.maxTokens ?? 4096,
+          max_completion_tokens: req.maxTokens ?? 8192,
           messages: [
             { role: "system", content: req.system },
             { role: "user", content: req.user },
           ],
           tools: [{ type: "function", function: { name: req.tool.name, description: req.tool.description, parameters: req.tool.schema } }],
-          tool_choice: { type: "function", function: { name: req.tool.name } },
+          tool_choice: "required",
           stream: true,
           stream_options: { include_usage: true },
         },

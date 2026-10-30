@@ -18,7 +18,7 @@ import { registerChatRoutes } from "../src/chat-routes.ts";
 import { createEventBus } from "../src/events.ts";
 import type { LlmRouter } from "../src/llm/router.ts";
 import { generateBrief, localDate } from "../src/pipeline/generate.ts";
-import { createLlmRouter } from "../src/llm/router.ts";
+import { createLlmRouter, normalizeToolOutput } from "../src/llm/router.ts";
 import { createServer } from "node:http";
 import { once } from "node:events";
 import { z } from "zod";
@@ -254,6 +254,126 @@ describe("structured AI output", () => {
       server.closeAllConnections();
       server.close();
     }
+  });
+
+  it("sends string tool_choice 'required' and normalises local-LLM tool argument quirks", async () => {
+    let capturedToolChoice: unknown = null;
+    const server = createServer(async (req, res) => {
+      const chunks: Buffer[] = [];
+      for await (const ch of req) chunks.push(ch as Buffer);
+      const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as { tool_choice?: unknown };
+      capturedToolChoice = body.tool_choice;
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      const send = (o: unknown) => res.write(`data: ${JSON.stringify(o)}\n\n`);
+      const args = JSON.stringify({
+        queries: [{ query: "aws iam escalation" }, { text: "llm prompt injection" }],
+        recentMatch: "R12",
+        exclude: "none",
+      });
+      send({ id: "c", object: "chat.completion.chunk", created: 0, model: "m", choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: "t", type: "function", function: { name: "submit", arguments: args } }] }, finish_reason: null }] });
+      send({ id: "c", object: "chat.completion.chunk", created: 0, model: "m", choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }] });
+      send({ id: "c", object: "chat.completion.chunk", created: 0, model: "m", choices: [], usage: { prompt_tokens: 10, completion_tokens: 5 } });
+      res.end("data: [DONE]\n\n");
+    });
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const address = server.address();
+    const port = typeof address === "object" && address ? address.port : 0;
+    const p = db.insert(providers).values({ name: "Quirks test", kind: "openai_compatible", baseUrl: `http://127.0.0.1:${port}/v1` }).returning().get();
+    db.insert(settings).values({ key: "ai.roles", value: { researcher: { providerId: p.id, model: "m" } } }).onConflictDoUpdate({ target: settings.key, set: { value: { researcher: { providerId: p.id, model: "m" } } } }).run();
+    const llm = createLlmRouter(db, makeSecretBox("x".repeat(40)));
+    const schema = z.object({
+      queries: z.array(z.string()).max(1),
+      recentMatch: z.number().int().nullable(),
+      exclude: z.string().nullable(),
+      materiallyNew: z.boolean(),
+    });
+    try {
+      const out = await llm.call("researcher", { system: "s", user: "u", toolName: "submit", toolDescription: "d", schema });
+      assert.equal(capturedToolChoice, "required");
+      assert.deepEqual(out, {
+        queries: ["aws iam escalation"],
+        recentMatch: 12,
+        exclude: null,
+        materiallyNew: false,
+      });
+    } finally {
+      server.closeAllConnections();
+      server.close();
+    }
+  });
+
+  it("rejects malformed dates instead of silently treating them as missing", () => {
+    const schema = z.object({ event_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable() });
+    const { $schema: _drop, ...jsonSchema } = z.toJSONSchema(schema, { target: "draft-7" });
+    assert.equal(schema.safeParse(normalizeToolOutput({ event_date: "garbage date" }, jsonSchema)).success, false);
+    assert.deepEqual(normalizeToolOutput({ event_date: "unknown" }, jsonSchema), { event_date: null });
+    assert.deepEqual(normalizeToolOutput({ event_date: "2026-10-30T12:00:00Z" }, jsonSchema), { event_date: "2026-10-30" });
+  });
+});
+
+describe("cluster evidence", () => {
+  it("includes a relevant later passage within the local-model budget", async () => {
+    const topic = db.insert(topics).values({ name: "Gateway security", description: "Track critical gateway fixes", accent: "#7C8CFF" }).returning().get();
+    const feed = db.insert(feeds).values({ name: "Evidence feed", url: "https://evidence.example/feed", lastFetchedAt: new Date() }).returning().get();
+    db.insert(feedTopics).values({ feedId: feed.id, topicId: topic.id }).run();
+    const text = `${"Background context. ".repeat(100)}Gateway security update fixes CVE-2026-1234 after an incident.`;
+    db.insert(feedItems).values({ feedId: feed.id, guid: "evidence", url: "https://evidence.example/story", title: "Gateway security update", publishedAt: new Date(), contentText: text }).run();
+    let excerpt = "";
+    const llm: LlmRouter = {
+      async call(_role, req) {
+        if (req.toolName === "submit_queries") return { queries: ["gateway security update"] } as never;
+        if (req.toolName === "submit_stories") { excerpt = req.user; throw new Error("stop after observing cluster prompt"); }
+        throw new Error(`Unexpected ${req.toolName}`);
+      },
+      chat() { throw new Error("Chat not expected"); },
+    };
+    await generateBrief({ db, llm, events: createEventBus(), log: app.log, search: async () => [] }, topic.id, "scheduled", { maxArticles: 1 });
+    assert.match(excerpt, /CVE-2026-1234/, "the selected later passage reaches the clustering model");
+    const sent = excerpt.match(/<candidate[^>]*>\n[^\n]*\n([\s\S]*?)\n<\/candidate>/)?.[1] ?? "";
+    assert.ok(sent.length <= 400, "the candidate excerpt remains bounded");
+  });
+});
+
+describe("cross-batch clustering", () => {
+  it("keeps pre-matched reports together and merges other duplicate events before selection", async () => {
+    const topic = db.insert(topics).values({ name: "Batch test", description: "Follow gateway releases", accent: "#7C8CFF" }).returning().get();
+    const feed = db.insert(feeds).values({ name: "Batch feed", url: "https://batch.example/feed", lastFetchedAt: new Date() }).returning().get();
+    db.insert(feedTopics).values({ feedId: feed.id, topicId: topic.id }).run();
+    for (let i = 0; i < 19; i++) {
+      db.insert(feedItems).values({ feedId: feed.id, guid: `batch-${i}`, url: `https://batch.example/${i}`, title: i === 0 || i === 18 ? "Gateway release resolves authentication bypass" : `Incident ${i} product${i} update${i}`, publishedAt: new Date(), contentText: `A distinct release numbered ${i} is now available. `.repeat(20) }).run();
+    }
+    const batches: number[][] = [];
+    let mergeIds: number[] = [];
+    const llm: LlmRouter = {
+      async call(_role, req) {
+        if (req.toolName === "submit_queries") return { queries: ["gateway release"] } as never;
+        if (req.toolName === "submit_stories") {
+          const ids = [...req.user.matchAll(/<candidate id="(\d+)"/g)].map((m) => Number(m[1]));
+          batches.push(ids);
+          return { clusters: ids.map((id) => ({ candidateIds: [id], canonical: id === 2 || id === 18 ? "Another shared gateway launch" : `Distinct gateway release number ${id}`, entities: [], relevance: 5, significance: 5, substance: 5, sourceQuality: 5, freshness: 5, preferenceFit: 2.5, eventDate: localDate(), exclude: null, recentMatch: null, materiallyNew: false })) } as never;
+        }
+        if (req.toolName === "submit_duplicate_stories") {
+          mergeIds = [...req.user.matchAll(/<story id="(\d+)"[^>]*>Another shared gateway launch<\/story>/g)].map((m) => Number(m[1]));
+          return { groups: [mergeIds] } as never;
+        }
+        if (req.toolName === "submit_selection") {
+          const ids = [...req.user.matchAll(/<story id="(\d+)"/g)].map((m) => Number(m[1]));
+          assert.equal(ids.length, 18, "duplicate stories have merged before editorial selection");
+          return { selected: [ids[0]] } as never;
+        }
+        if (req.toolName === "submit_article") return { headline: "Gateway release resolves an authentication bypass", summary: "A gateway release addresses a previously reported authentication bypass affecting deployed systems. ".repeat(4), body_md: "The gateway release fixes the issue [1]. ".repeat(20), source_ids: [1], event_date: localDate() } as never;
+        throw new Error(`Unexpected ${req.toolName}`);
+      },
+      chat() { throw new Error("Chat not expected"); },
+    };
+    const briefId = await generateBrief({ db, llm, events: createEventBus(), log: app.log, search: async () => [] }, topic.id, "scheduled", { maxArticles: 1 });
+    assert.equal(db.select().from(briefs).where(eq(briefs.id, briefId)).get()?.status, "complete");
+    assert.equal(batches.length, 2);
+    assert.ok(batches.some((ids) => ids.includes(1) && ids.includes(19)), "pre-matched reports remain in the same model call");
+    assert.ok(batches.some((ids) => ids.includes(2) && !ids.includes(18)) && batches.some((ids) => ids.includes(18) && !ids.includes(2)), "the other duplicate spans batches");
+    assert.equal(mergeIds.length, 2, "the second pass sees unrelated-title duplicates across batches");
+    assert.equal(db.select().from(articles).where(eq(articles.briefId, briefId)).all().length, 1);
   });
 });
 

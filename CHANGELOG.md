@@ -2,6 +2,13 @@
 
 All notable changes to DailyBrief. Versions follow [Semantic Versioning](https://semver.org/); the version shown in the app and the manual comes from the root `package.json`.
 
+## Unreleased
+
+### Fixed
+- OpenAI-compatible local models can request structured tools using the standard `required` choice, with common output quirks normalised before validation.
+- Smaller clustering calls retain relevant source passages and reconcile duplicate events across batches before the editor chooses stories.
+- Invalid model-generated dates still fail validation rather than silently becoming undated articles.
+
 ## 1.0.0-beta.8 — 2026-10-16
 
 ### Added

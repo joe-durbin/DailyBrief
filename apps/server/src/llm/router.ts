@@ -30,6 +30,139 @@ export function getProvider(db: Db, box: SecretBox, id: number): LlmProvider | n
 
 const readSetting = (db: Db, key: string) => db.select({ value: settings.value }).from(settings).where(eq(settings.key, key)).get()?.value;
 
+type SchemaNode = Record<string, unknown>;
+
+/**
+ * Coerce common local/open-weights LLM tool-call quirks to match the target JSON Schema before Zod validation:
+ * - Objects inside string arrays (e.g. `queries: [{ query: "..." }]` -> `["..."]`)
+ * - Bare arrays when a single-property wrapper object was expected
+ * - String/prefixed IDs where integers are expected (e.g. `"R12"` -> `12`, `[{ id: 1 }]` -> `[1]`)
+ * - Missing booleans / nullable fields (e.g. omitted `materiallyNew` -> `false`, `exclude: ""` / `"none"` -> `null`)
+ * - Arrays exceeding `maxItems` (truncated instead of rejecting the whole call)
+ */
+export function normalizeToolOutput(val: unknown, schema: SchemaNode): unknown {
+  if (!schema || typeof schema !== "object") return val;
+
+  if (Array.isArray(schema.type)) {
+    const types = schema.type as string[];
+    const nullable = types.includes("null");
+    const primary = types.find((t) => t !== "null");
+    if (nullable) {
+      if (val === null || val === undefined || val === false) return null;
+      if (typeof val === "string" && /^(null|none|n\/a|nil|false|unknown|)$/i.test(val.trim())) return null;
+    }
+    if (primary) {
+      return normalizeToolOutput(val, { ...schema, type: primary });
+    }
+  }
+
+  if (Array.isArray(schema.anyOf)) {
+    const branches = schema.anyOf as SchemaNode[];
+    const nullable = branches.some((b) => b.type === "null");
+    const nonNull = branches.find((b) => b.type !== "null");
+    if (nullable) {
+      if (val === null || val === undefined || val === false) return null;
+      if (typeof val === "string" && /^(null|none|n\/a|nil|false|unknown|)$/i.test(val.trim())) return null;
+    }
+    if (nonNull) {
+      const coerced = normalizeToolOutput(val, nonNull);
+      if (nullable && nonNull.type === "string" && typeof nonNull.pattern === "string" && typeof coerced === "string") {
+        const pattern = new RegExp(nonNull.pattern);
+        const isoMatch = coerced.match(/^(\d{4}-\d{2}-\d{2})T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/);
+        if (isoMatch && pattern.test(isoMatch[1]!)) return isoMatch[1];
+      }
+      return coerced;
+    }
+  }
+
+  const type = schema.type;
+  if (type === "string" && typeof schema.pattern === "string" && typeof val === "string") {
+    const isoMatch = val.match(/^(\d{4}-\d{2}-\d{2})T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/);
+    if (isoMatch && new RegExp(schema.pattern).test(isoMatch[1]!)) return isoMatch[1];
+  }
+
+  if (type === "object" && schema.properties && typeof schema.properties === "object") {
+    const props = schema.properties as Record<string, SchemaNode>;
+    const keys = Object.keys(props);
+    let obj = val;
+    if (Array.isArray(obj) && keys.length === 1 && props[keys[0]!]?.type === "array") {
+      obj = { [keys[0]!]: obj };
+    } else if (typeof obj === "object" && obj !== null && !Array.isArray(obj)) {
+      const rec = obj as Record<string, unknown>;
+      if (keys.every((k) => !(k in rec))) {
+        const inner = rec.parameters ?? rec.arguments ?? rec.input ?? rec.data;
+        if (typeof inner === "object" && inner !== null) obj = inner;
+      }
+    }
+    if (typeof obj !== "object" || obj === null || Array.isArray(obj)) return obj;
+    const out: Record<string, unknown> = { ...(obj as Record<string, unknown>) };
+    for (const [k, propSchema] of Object.entries(props)) {
+      out[k] = normalizeToolOutput(out[k], propSchema);
+    }
+    return out;
+  }
+
+  if (type === "array") {
+    let arr = val;
+    if (typeof arr === "string") {
+      try {
+        const parsed = JSON.parse(arr);
+        if (Array.isArray(parsed)) arr = parsed;
+      } catch {
+        // leave as-is
+      }
+    }
+    if (!Array.isArray(arr)) return arr;
+    const itemSchema = (schema.items as SchemaNode | undefined) ?? {};
+    let mapped = arr.map((item) => normalizeToolOutput(item, itemSchema));
+    if (typeof schema.maxItems === "number" && mapped.length > schema.maxItems) {
+      mapped = mapped.slice(0, schema.maxItems);
+    }
+    return mapped;
+  }
+
+  if (type === "string") {
+    if (typeof val === "object" && val !== null && !Array.isArray(val)) {
+      const rec = val as Record<string, unknown>;
+      for (const k of ["query", "text", "value", "name", "title", "summary", "headline", "instruction", "canonical"]) {
+        if (typeof rec[k] === "string" && rec[k].trim()) return rec[k];
+      }
+      const firstStr = Object.values(rec).find((v): v is string => typeof v === "string" && v.trim().length > 0);
+      if (firstStr !== undefined) return firstStr;
+    }
+    return val;
+  }
+
+  if (type === "integer" || type === "number") {
+    let num = val;
+    if (typeof num === "object" && num !== null && !Array.isArray(num)) {
+      const rec = num as Record<string, unknown>;
+      num = rec.id ?? rec.slot ?? rec.value ?? Object.values(rec)[0];
+    }
+    if (typeof num === "string") {
+      const cleaned = num.trim().replace(/^[A-Za-z#_-]+/, "");
+      if (/^-?\d+(\.\d+)?$/.test(cleaned)) num = Number(cleaned);
+    }
+    if (typeof num === "number" && Number.isFinite(num)) {
+      let value: number = type === "integer" ? Math.round(num) : num;
+      const minimum = schema.minimum;
+      const maximum = schema.maximum;
+      if (typeof minimum === "number" && value < minimum) value = minimum;
+      if (typeof maximum === "number" && value > maximum) value = maximum;
+      return value;
+    }
+    return num;
+  }
+
+  if (type === "boolean") {
+    if (val === undefined || val === null || val === 0 || val === "false" || val === "no") return false;
+    if (val === 1 || val === "true" || val === "yes") return true;
+    return val;
+  }
+
+  return val;
+}
+
 /** Role → provider/model: `ai.roles[role]` overrides `ai.default`. */
 export function resolveRole(db: Db, role: Role): ModelChoice {
   const override = roleChoicesSchema.safeParse(readSetting(db, "ai.roles") ?? {}).data?.[role];
@@ -138,7 +271,8 @@ export function createLlmRouter(db: Db, box: SecretBox, limits: CallLimits = { s
           throw err;
         })
         .finally(limit.done);
-      const parsed = req.schema.safeParse(res.output);
+      const normalized = normalizeToolOutput(res.output, jsonSchema);
+      const parsed = req.schema.safeParse(normalized);
       if (!parsed.success) {
         const msg = `Invalid ${req.toolName} output: ${z.prettifyError(parsed.error).slice(0, 500)}`;
         record(role, choice, ctx, started, false, res.usage, msg);

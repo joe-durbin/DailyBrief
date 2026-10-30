@@ -19,6 +19,8 @@ import {
   type ArticleDraft,
   articleSchema,
   type Cluster,
+  clusterMergePrompt,
+  clusterMergeSchema,
   clusterPrompt,
   type Preferences,
   clusterSchema,
@@ -44,9 +46,11 @@ const FRESH_DAYS = 7;
 const MAX_RSS_FETCH = 35;
 const MAX_SEARCH_FETCH = 35;
 const FETCH_CONCURRENCY = 8;
-const WRITE_CONCURRENCY = 3;
+const WRITE_CONCURRENCY = 1;
 const SOURCES_PER_ARTICLE = 4;
-const SOURCE_CHARS = 6_000;
+const SOURCE_CHARS = 3_500;
+const CLUSTER_BATCH_SIZE = 18;
+const CLUSTER_EXTRACT_CHARS = 400;
 const WRITER_TOKENS: Record<AgentsSettings["writer"], number> = { concise: 3_600, standard: 6_000, detailed: 9_000 };
 const EDITOR_SHORTLIST = 30;
 const RECENT_STORY_DAYS = 14;
@@ -316,6 +320,46 @@ async function gather(deps: PipelineDeps, topicId: number, queries: string[], wi
   return [...fromRss, ...fromSearch].flatMap((r) => (r.status === "fulfilled" && r.value ? [{ ...r.value, id: nextId++ }] : []));
 }
 
+/** Keep the selected later passage (and deep summary) inside the local-model clustering budget. */
+function clusterEvidence(extract: string): string {
+  const laterLabel = "\n[Selected later passage] ";
+  const summaryLabel = "\n[Researcher summary of selected excerpts, not full source] ";
+  const later = extract.indexOf(laterLabel);
+  const summary = extract.indexOf(summaryLabel);
+  if (later < 0 && summary < 0) return extract.slice(0, CLUSTER_EXTRACT_CHARS);
+  const opening = extract.slice(0, summary < 0 ? 170 : 120);
+  const nextPassage = later < 0 ? -1 : extract.indexOf(laterLabel, later + laterLabel.length);
+  const passageEnd = nextPassage >= 0 ? nextPassage : summary >= 0 ? summary : extract.length;
+  const passage = later < 0 ? "" : extract.slice(later, Math.min(passageEnd, later + (summary < 0 ? 230 : 120)));
+  const context = summary < 0 ? "" : extract.slice(summary, summary + (CLUSTER_EXTRACT_CHARS - opening.length - passage.length));
+  return opening + passage + context;
+}
+
+/** Keep pre-matched reports together when possible; oversized groups alone need multiple calls. */
+function clusterBatches(pool: Candidate[], groups: number[]): Candidate[][] {
+  const grouped = new Map<number, Candidate[]>();
+  pool.forEach((candidate, index) => {
+    const group = groups[index] ?? index;
+    const members = grouped.get(group) ?? [];
+    members.push(candidate);
+    grouped.set(group, members);
+  });
+  const batches: Candidate[][] = [];
+  let batch: Candidate[] = [];
+  for (const members of grouped.values()) {
+    for (let offset = 0; offset < members.length; offset += CLUSTER_BATCH_SIZE) {
+      const part = members.slice(offset, offset + CLUSTER_BATCH_SIZE);
+      if (batch.length + part.length > CLUSTER_BATCH_SIZE) {
+        batches.push(batch);
+        batch = [];
+      }
+      batch.push(...part);
+    }
+  }
+  if (batch.length) batches.push(batch);
+  return batches;
+}
+
 async function clusterStories(deps: PipelineDeps, topic: typeof topics.$inferSelect, pool: Candidate[], ctx: PipelineContext, prefs: Preferences): Promise<Story[]> {
   const { db, llm } = deps;
   const groups = preCluster(pool);
@@ -339,28 +383,41 @@ async function clusterStories(deps: PipelineDeps, topic: typeof topics.$inferSel
       if (item) item.extract += `\n[Researcher summary of selected excerpts, not full source] ${summary}`;
     }
   }
-  const out = await llm.call(
-    "researcher",
-    {
-      ...clusterPrompt(
-        topic,
-        pool.map((c, i) => ({ id: c.id, group: groups[i] ?? i, title: c.title, url: c.url, date: formatHint(c.published), extract: evidence?.get(c.id)?.extract ?? c.text.slice(0, 300) })),
-        recent,
-        prefs,
-        localDate(),
-      ),
-      toolName: "submit_stories",
-      toolDescription: "Submit the clustered and scored stories",
-      schema: clusterSchema,
-      maxTokens: 16_000,
-    },
-    ctx,
-  );
+  const allClusters: Cluster[] = [];
+  const groupById = new Map(pool.map((candidate, index) => [candidate.id, groups[index] ?? index]));
+  const batches = clusterBatches(pool, groups);
+  for (const slice of batches) {
+    const out = await llm.call(
+      "researcher",
+      {
+        ...clusterPrompt(
+          topic,
+          slice.map((c) => ({
+            id: c.id,
+            group: groupById.get(c.id) ?? c.id,
+            title: c.title,
+            url: c.url,
+            date: formatHint(c.published),
+            extract: clusterEvidence(evidence?.get(c.id)?.extract ?? c.text),
+          })),
+          recent,
+          prefs,
+          localDate(),
+        ),
+        toolName: "submit_stories",
+        toolDescription: "Submit the clustered and scored stories",
+        schema: clusterSchema,
+        maxTokens: 6_000,
+      },
+      ctx,
+    );
+    allClusters.push(...out.clusters);
+  }
   const byId = new Map(pool.map((c) => [c.id, c]));
   const used = new Set<number>();
   const weightSum = Object.values(WEIGHTS).reduce((a, b) => a + b, 0);
   const stale: string[] = [];
-  const stories = out.clusters
+  let stories = allClusters
     .flatMap((cl, i): Story[] => {
       const members = cl.candidateIds.filter((id) => !used.has(id) && byId.has(id)).flatMap((id) => byId.get(id) ?? []);
       members.forEach((m) => used.add(m.id));
@@ -374,9 +431,36 @@ async function clusterStories(deps: PipelineDeps, topic: typeof topics.$inferSel
         return [];
       }
       const score = (Object.keys(WEIGHTS) as (keyof typeof WEIGHTS)[]).reduce((s, k) => s + cl[k] * WEIGHTS[k], 0) / weightSum;
-      return [{ ...cl, id: i + 1, score, members, date }];
+      return [{ ...cl, entities: cl.entities.slice(0, 8), id: i + 1, score, members, date }];
     })
     .sort((a, b) => b.score - a.score);
+  if (batches.length > 1 && stories.length > 1) {
+    const { groups: duplicateGroups } = await llm.call("researcher", {
+      ...clusterMergePrompt(topic, stories.map((story) => ({ id: story.id, canonical: story.canonical.slice(0, 140), eventDate: story.eventDate }))),
+      toolName: "submit_duplicate_stories",
+      toolDescription: "Identify duplicate events reported in different candidate batches",
+      schema: clusterMergeSchema,
+      maxTokens: 2_000,
+    }, ctx);
+    const byStoryId = new Map(stories.map((story) => [story.id, story]));
+    const removed = new Set<number>();
+    for (const ids of duplicateGroups) {
+      const matches = ids.flatMap((id) => {
+        const story = byStoryId.get(id);
+        return story && !removed.has(id) ? [story] : [];
+      });
+      if (matches.length < 2) continue;
+      matches.sort((a, b) => b.score - a.score);
+      const primary = matches[0]!;
+      for (const duplicate of matches.slice(1)) {
+        primary.members.push(...duplicate.members);
+        primary.entities = [...new Set([...primary.entities, ...duplicate.entities])].slice(0, 8);
+        removed.add(duplicate.id);
+      }
+    }
+    if (removed.size) deps.log.info({ briefId: ctx.briefId, merged: removed.size }, "cross-batch duplicate stories merged");
+    stories = stories.filter((story) => !removed.has(story.id));
+  }
   if (stale.length) deps.log.info({ briefId: ctx.briefId, dropped: stale }, "story dates checked");
   return stories;
 }
